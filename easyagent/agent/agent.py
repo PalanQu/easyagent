@@ -14,6 +14,7 @@ from langfuse.langchain import CallbackHandler
 from langchain.agents.middleware import InterruptOnConfig
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain.agents.structured_output import ResponseFormat
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 from langgraph.cache.base import BaseCache
@@ -25,6 +26,20 @@ from easyagent.utils.settings import Settings
 
 
 logger = logging.getLogger(__name__)
+
+
+class InvocationLifecycleLogger(BaseCallbackHandler):
+    def on_llm_start(self, serialized: dict[str, Any], prompts: list[str], **kwargs: Any) -> Any:
+        logger.info("llm call started")
+
+    def on_llm_end(self, response: Any, **kwargs: Any) -> Any:
+        logger.info("llm call finished")
+
+    def on_tool_start(self, serialized: dict[str, Any], input_str: str, **kwargs: Any) -> Any:
+        logger.info("tool call started")
+
+    def on_tool_end(self, output: Any, **kwargs: Any) -> Any:
+        logger.info("tool call finished")
 
 
 def _create_chat_model(settings: Settings) -> ChatOpenAI:
@@ -133,6 +148,7 @@ class DeepAgentRunner:
             kwargs["cache"] = cache
 
         self._langfuse_enabled = self._initialize_langfuse()
+        self._invocation_logger = InvocationLifecycleLogger()
 
         # Pre-create the agent (compiled once, reused for all requests)
         self._agent = create_deep_agent(**kwargs)
@@ -175,6 +191,10 @@ class DeepAgentRunner:
                     metadata["langfuse_session_id"] = payload.thread_id
                 if metadata:
                     config["metadata"] = metadata
+
+            callbacks = list(config.get("callbacks") or [])
+            callbacks.append(self._invocation_logger)
+            config["callbacks"] = callbacks
 
         # Invoke the precompiled agent
         state = self._agent.invoke(invoke_input, config=config if config else None)
