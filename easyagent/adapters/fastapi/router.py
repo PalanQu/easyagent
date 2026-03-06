@@ -16,8 +16,6 @@ class EasyagentSDKRouterProtocol(Protocol):
 
     def _build_session_service(self, db_session: Session): ...
 
-    async def get_current_user(self, request: Request) -> AuthUser: ...
-
     @property
     def agent_runner(self): ...
 
@@ -26,7 +24,10 @@ def build_easyagent_router(sdk: EasyagentSDKRouterProtocol) -> APIRouter:
     router = APIRouter(tags=["easyagent"])
 
     async def get_current_user(request: Request) -> AuthUser:
-        return await sdk.get_current_user(request)
+        cached_user = getattr(request.state, "auth_user", None)
+        if isinstance(cached_user, AuthUser):
+            return cached_user
+        raise HTTPException(status_code=401, detail="Missing user identification")
 
     @router.get("/health")
     def health() -> dict[str, str]:

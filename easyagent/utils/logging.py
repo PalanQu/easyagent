@@ -1,11 +1,77 @@
 import logging
 import os
 import sys
+from typing import Any
+
+from fastapi import Request
 
 _DEFAULT_LOG_FORMAT = (
-    "%(asctime)s %(levelname)s [%(name)s] %(filename)s:%(lineno)d - %(message)s"
+    "%(asctime)s %(levelname)s [%(name)s] [user_id=%(user_id)s thread_id=%(thread_id)s] "
+    "%(filename)s:%(lineno)d - %(message)s"
 )
 _DEFAULT_DATE_FORMAT = "%Y-%m-%d %H:%M:%S%z"
+_DEFAULT_CONTEXT_VALUE = "-"
+_DEFAULT_CONTEXT = {
+    "user_id": _DEFAULT_CONTEXT_VALUE,
+    "thread_id": _DEFAULT_CONTEXT_VALUE,
+}
+
+
+def _to_context_value(value: str | int | None) -> str:
+    if value is None:
+        return _DEFAULT_CONTEXT_VALUE
+    return str(value)
+
+
+def set_request_log_context(
+    request: Request,
+    *,
+    user_id: str | int | None = None,
+    thread_id: str | int | None = None,
+) -> None:
+    """Store request-scoped logging context on request.state."""
+    context: dict[str, str] = {}
+    if user_id not in (None, "", _DEFAULT_CONTEXT_VALUE):
+        context["user_id"] = _to_context_value(user_id)
+    if thread_id not in (None, "", _DEFAULT_CONTEXT_VALUE):
+        context["thread_id"] = _to_context_value(thread_id)
+    request.state.log_context = context
+
+
+class RequestContextFilter(logging.Filter):
+    """Inject default request context fields into every log record."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.user_id = _to_context_value(getattr(record, "user_id", _DEFAULT_CONTEXT_VALUE))
+        record.thread_id = _to_context_value(
+            getattr(record, "thread_id", _DEFAULT_CONTEXT_VALUE)
+        )
+        return True
+
+
+class ContextLoggerAdapter(logging.LoggerAdapter):
+    """Logger adapter that merges explicit extra fields with default context."""
+
+    def process(self, msg: Any, kwargs: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
+        extra = dict(_DEFAULT_CONTEXT)
+        extra.update(self.extra)
+        message_extra = kwargs.get("extra")
+        if isinstance(message_extra, dict):
+            extra.update(message_extra)
+        kwargs["extra"] = extra
+        return msg, kwargs
+
+
+def get_request_logger(request: Request, name: str) -> ContextLoggerAdapter:
+    """Return a logger adapter populated from request.state log context."""
+    extra = dict(_DEFAULT_CONTEXT)
+    context = getattr(request.state, "log_context", None)
+    if isinstance(context, dict):
+        for key in ("user_id", "thread_id"):
+            value = context.get(key)
+            if value not in (None, "", _DEFAULT_CONTEXT_VALUE):
+                extra[key] = _to_context_value(value)
+    return ContextLoggerAdapter(logging.getLogger(name), extra)
 
 
 def _parse_level(level: str | int | None) -> int:
@@ -37,7 +103,10 @@ def setup_logging(
     formatter = logging.Formatter(_DEFAULT_LOG_FORMAT, datefmt=_DEFAULT_DATE_FORMAT)
     handler = logging.StreamHandler(stream=sys.stdout)
     handler.setFormatter(formatter)
+    handler.addFilter(RequestContextFilter())
 
+    if target_logger.handlers:
+        target_logger.handlers.clear()
     target_logger.addHandler(handler)
     target_logger.setLevel(target_level)
     target_logger.propagate = False

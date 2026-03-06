@@ -6,6 +6,7 @@ from fastapi import APIRouter, FastAPI, Request
 from sqlmodel import Session
 
 from easyagent.adapters.fastapi import build_easyagent_router
+from easyagent.adapters.fastapi.middleware import build_logging_context_middleware
 from easyagent.agent.agent import DeepAgentRunner
 from easyagent.auth import AuthProvider, AuthUser, NoopAuthProvider
 from easyagent.repos.factory import build_session_repo, build_user_repo
@@ -169,5 +170,6 @@ class EasyagentSDK:
 
     def create_app(self, prefix: str = "") -> FastAPI:
         app = FastAPI(title=self.title, version=self.version)
+        app.middleware("http")(build_logging_context_middleware(self.get_current_user))
         self.mount_fastapi(app, prefix=prefix)
         return app
