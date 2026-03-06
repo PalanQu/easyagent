@@ -198,7 +198,6 @@ class DeepAgentRunner:
 
         self._langfuse_enabled = self._initialize_langfuse()
 
-        # Pre-create the agent (compiled once, reused for all requests)
         self._agent = create_deep_agent(**kwargs)
 
     def run(self, payload: AgentRunRequest) -> AgentRunResponse:

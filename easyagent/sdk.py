@@ -123,7 +123,6 @@ class EasyagentSDK:
         self.version = version
         self.auth_provider = auth_provider or NoopAuthProvider()
 
-        # Pre-create the agent runner (agent is compiled once)
         self.agent_runner = DeepAgentRunner(
             settings,
             system_prompt=system_prompt,
