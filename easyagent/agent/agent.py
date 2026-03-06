@@ -29,17 +29,66 @@ logger = logging.getLogger(__name__)
 
 
 class InvocationLifecycleLogger(BaseCallbackHandler):
+    def __init__(self, *, user_id: str | None, thread_id: str | None) -> None:
+        self._user_id = user_id
+        self._thread_id = thread_id
+        self._llm_run_name: dict[str, str] = {}
+        self._tool_run_name: dict[str, str] = {}
+
+    def _extra(self) -> dict[str, str]:
+        return {
+            "user_id": self._user_id or "-",
+            "thread_id": self._thread_id or "-",
+        }
+
+    def _resolve_name(self, serialized: dict[str, Any] | None, *, fallback: str) -> str:
+        if not isinstance(serialized, dict):
+            return fallback
+        name = serialized.get("name")
+        if isinstance(name, str) and name.strip():
+            return name
+
+        serialized_id = serialized.get("id")
+        if isinstance(serialized_id, list):
+            for candidate in reversed(serialized_id):
+                if isinstance(candidate, str) and candidate.strip():
+                    return candidate
+        elif isinstance(serialized_id, str) and serialized_id.strip():
+            return serialized_id
+
+        return fallback
+
+    def on_chat_model_start(
+        self,
+        serialized: dict[str, Any],
+        messages: list[list[Any]],
+        **kwargs: Any,
+    ) -> Any:
+        self.on_llm_start(serialized, prompts=[], **kwargs)
+
     def on_llm_start(self, serialized: dict[str, Any], prompts: list[str], **kwargs: Any) -> Any:
-        logger.info("llm call started")
+        llm_name = self._resolve_name(serialized, fallback="unknown_llm")
+        run_id = kwargs.get("run_id")
+        if run_id is not None:
+            self._llm_run_name[str(run_id)] = llm_name
+        logger.info("llm call started: %s", llm_name, extra=self._extra())
 
     def on_llm_end(self, response: Any, **kwargs: Any) -> Any:
-        logger.info("llm call finished")
+        run_id = kwargs.get("run_id")
+        llm_name = self._llm_run_name.pop(str(run_id), "unknown_llm") if run_id is not None else "unknown_llm"
+        logger.info("llm call finished: %s", llm_name, extra=self._extra())
 
     def on_tool_start(self, serialized: dict[str, Any], input_str: str, **kwargs: Any) -> Any:
-        logger.info("tool call started")
+        tool_name = self._resolve_name(serialized, fallback="unknown_tool")
+        run_id = kwargs.get("run_id")
+        if run_id is not None:
+            self._tool_run_name[str(run_id)] = tool_name
+        logger.info("tool call started: %s", tool_name, extra=self._extra())
 
     def on_tool_end(self, output: Any, **kwargs: Any) -> Any:
-        logger.info("tool call finished")
+        run_id = kwargs.get("run_id")
+        tool_name = self._tool_run_name.pop(str(run_id), "unknown_tool") if run_id is not None else "unknown_tool"
+        logger.info("tool call finished: %s", tool_name, extra=self._extra())
 
 
 def _create_chat_model(settings: Settings) -> ChatOpenAI:
@@ -148,7 +197,6 @@ class DeepAgentRunner:
             kwargs["cache"] = cache
 
         self._langfuse_enabled = self._initialize_langfuse()
-        self._invocation_logger = InvocationLifecycleLogger()
 
         # Pre-create the agent (compiled once, reused for all requests)
         self._agent = create_deep_agent(**kwargs)
@@ -192,9 +240,14 @@ class DeepAgentRunner:
                 if metadata:
                     config["metadata"] = metadata
 
-            callbacks = list(config.get("callbacks") or [])
-            callbacks.append(self._invocation_logger)
-            config["callbacks"] = callbacks
+        callbacks = list(config.get("callbacks") or [])
+        callbacks.append(
+            InvocationLifecycleLogger(
+                user_id=payload.user_id,
+                thread_id=payload.thread_id,
+            )
+        )
+        config["callbacks"] = callbacks
 
         # Invoke the precompiled agent
         state = self._agent.invoke(invoke_input, config=config if config else None)
