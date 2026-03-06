@@ -6,14 +6,19 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field, model_validator
 
 
-def _parse_bool(value: str | None, default: bool) -> bool:
+def _parse_bool(value: str | bool | None, default: bool) -> bool:
     if value is None:
         return default
+
+    if isinstance(value, bool):
+        return value
+
     normalized = value.strip().lower()
-    if normalized in {"1", "true", "yes", "on"}:
+    if normalized == "true":
         return True
-    if normalized in {"0", "false", "no", "off"}:
+    if normalized == "false":
         return False
+
     raise ValueError(f"invalid bool value: {value}")
 
 
