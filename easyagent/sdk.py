@@ -1,4 +1,5 @@
 from collections.abc import Callable, Generator, Sequence
+import logging
 from typing import Any
 
 from fastapi import APIRouter, FastAPI, Request
@@ -11,6 +12,7 @@ from easyagent.repos.factory import build_session_repo, build_user_repo
 from easyagent.services.session_service import SessionService
 from easyagent.services.user_service import UserService
 from easyagent.utils.db import Database
+from easyagent.utils.logging import setup_logging
 from easyagent.utils.settings import Settings
 
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgent
@@ -33,6 +35,8 @@ __all__ = [
     "BaseTool",
     "BaseCache",
 ]
+
+logger = logging.getLogger(__name__)
 
 
 class EasyagentSDK:
@@ -106,9 +110,13 @@ class EasyagentSDK:
             title: FastAPI application title.
             version: FastAPI application version.
         """
+        setup_logging()
         self.settings = settings
         self.database = Database(settings)
         self.database.create_tables()
+        logger.info(
+            "EasyagentSDK initialized"
+        )
 
         self.title = title
         self.version = version
