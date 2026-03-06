@@ -1,4 +1,6 @@
 from collections.abc import Callable, Sequence
+import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -7,6 +9,8 @@ from deepagents.backends import CompositeBackend, FilesystemBackend, LocalShellB
 from deepagents.backends.protocol import BackendProtocol
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgent
 from fastapi.encoders import jsonable_encoder
+from langfuse import get_client
+from langfuse.langchain import CallbackHandler
 from langchain.agents.middleware import InterruptOnConfig
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain.agents.structured_output import ResponseFormat
@@ -18,6 +22,9 @@ from langgraph.store.memory import InMemoryStore
 
 from easyagent.models.schema.agent import AgentRunRequest, AgentRunResponse
 from easyagent.utils.settings import Settings
+
+
+logger = logging.getLogger(__name__)
 
 
 def _create_chat_model(settings: Settings) -> ChatOpenAI:
@@ -125,6 +132,8 @@ class DeepAgentRunner:
         if cache is not None:
             kwargs["cache"] = cache
 
+        self._langfuse_enabled = self._initialize_langfuse()
+
         # Pre-create the agent (compiled once, reused for all requests)
         self._agent = create_deep_agent(**kwargs)
 
@@ -152,11 +161,36 @@ class DeepAgentRunner:
         if configurable:
             config["configurable"] = configurable
 
+        if self._langfuse_enabled:
+            handler = self._build_langfuse_handler()
+            if handler is not None:
+                callbacks = list(config.get("callbacks") or [])
+                callbacks.append(handler)
+                config["callbacks"] = callbacks
+
+                metadata = dict(config.get("metadata") or {})
+                if payload.user_id and "langfuse_user_id" not in metadata:
+                    metadata["langfuse_user_id"] = payload.user_id
+                if payload.thread_id and "langfuse_session_id" not in metadata:
+                    metadata["langfuse_session_id"] = payload.thread_id
+                if metadata:
+                    config["metadata"] = metadata
+
         # Invoke the precompiled agent
         state = self._agent.invoke(invoke_input, config=config if config else None)
         final_output = self._extract_final_output(state)
         safe_state = self._safe_jsonable(state)
         return AgentRunResponse(final_output=final_output, state=safe_state)
+
+    def _initialize_langfuse(self) -> bool:
+        if not os.getenv("LANGFUSE_BASE_URL"):
+            return False
+
+        get_client()
+        return True
+
+    def _build_langfuse_handler(self) -> object | None:
+        return CallbackHandler()
 
     def _extract_final_output(self, state: object) -> str | None:
         if not isinstance(state, dict):
