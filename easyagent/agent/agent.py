@@ -202,7 +202,6 @@ class DeepAgentRunner:
 
     def run(self, payload: AgentRunRequest) -> AgentRunResponse:
         """Execute the precompiled agent with the given runtime input."""
-        # Build invoke input
         invoke_input: dict
         if payload.invoke_input is not None:
             invoke_input = dict(payload.invoke_input)
@@ -214,7 +213,6 @@ class DeepAgentRunner:
         if payload.files and "files" not in invoke_input:
             invoke_input["files"] = payload.files
 
-        # Build invoke config
         config: dict = dict(payload.invoke_config or {})
         configurable: dict = dict(config.get("configurable") or {})
         if payload.thread_id:
@@ -226,18 +224,17 @@ class DeepAgentRunner:
 
         if self._langfuse_enabled:
             handler = self._build_langfuse_handler()
-            if handler is not None:
-                callbacks = list(config.get("callbacks") or [])
-                callbacks.append(handler)
-                config["callbacks"] = callbacks
+            callbacks = list(config.get("callbacks") or [])
+            callbacks.append(handler)
+            config["callbacks"] = callbacks
 
-                metadata = dict(config.get("metadata") or {})
-                if payload.user_id and "langfuse_user_id" not in metadata:
-                    metadata["langfuse_user_id"] = payload.user_id
-                if payload.thread_id and "langfuse_session_id" not in metadata:
-                    metadata["langfuse_session_id"] = payload.thread_id
-                if metadata:
-                    config["metadata"] = metadata
+            metadata = dict(config.get("metadata") or {})
+            if payload.user_id and "langfuse_user_id" not in metadata:
+                metadata["langfuse_user_id"] = payload.user_id
+            if payload.thread_id and "langfuse_session_id" not in metadata:
+                metadata["langfuse_session_id"] = payload.thread_id
+            if metadata:
+                config["metadata"] = metadata
 
         callbacks = list(config.get("callbacks") or [])
         callbacks.append(
@@ -261,7 +258,7 @@ class DeepAgentRunner:
         get_client()
         return True
 
-    def _build_langfuse_handler(self) -> object | None:
+    def _build_langfuse_handler(self) -> BaseCallbackHandler:
         return CallbackHandler()
 
     def _extract_final_output(self, state: object) -> str | None:
