@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import Request
 
 _DEFAULT_LOG_FORMAT = (
-    "%(asctime)s %(levelname)s [%(name)s] [user_id=%(user_id)s thread_id=%(thread_id)s] "
+    "%(asctime)s %(levelname)s [%(name)s]%(request_context)s "
     "%(filename)s:%(lineno)d - %(message)s"
 )
 _DEFAULT_DATE_FORMAT = "%Y-%m-%d %H:%M:%S%z"
@@ -43,9 +43,15 @@ class RequestContextFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         record.user_id = _to_context_value(getattr(record, "user_id", _DEFAULT_CONTEXT_VALUE))
-        record.thread_id = _to_context_value(
-            getattr(record, "thread_id", _DEFAULT_CONTEXT_VALUE)
-        )
+        record.thread_id = _to_context_value(getattr(record, "thread_id", _DEFAULT_CONTEXT_VALUE))
+
+        context_parts: list[str] = []
+        if record.user_id != _DEFAULT_CONTEXT_VALUE:
+            context_parts.append(f"user_id={record.user_id}")
+        if record.thread_id != _DEFAULT_CONTEXT_VALUE:
+            context_parts.append(f"thread_id={record.thread_id}")
+
+        record.request_context = f" [{' '.join(context_parts)}]" if context_parts else ""
         return True
 
 
@@ -110,4 +116,13 @@ def setup_logging(
     target_logger.addHandler(handler)
     target_logger.setLevel(target_level)
     target_logger.propagate = False
+
+    for uvicorn_logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        uvicorn_logger = logging.getLogger(uvicorn_logger_name)
+        if uvicorn_logger.handlers:
+            uvicorn_logger.handlers.clear()
+        uvicorn_logger.addHandler(handler)
+        uvicorn_logger.setLevel(target_level)
+        uvicorn_logger.propagate = False
+
     return target_logger

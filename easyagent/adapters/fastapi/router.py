@@ -7,6 +7,7 @@ from easyagent.models.schema.agent import AgentRunRequest, AgentRunResponse
 from easyagent.models.schema.auth import AuthUser
 from easyagent.models.schema.session import SessionCreate, SessionOut
 from easyagent.models.schema.user import UserCreate, UserOut
+from easyagent.utils.logging import get_request_logger
 
 
 class EasyagentSDKRouterProtocol(Protocol):
@@ -35,9 +36,11 @@ def build_easyagent_router(sdk: EasyagentSDKRouterProtocol) -> APIRouter:
 
     @router.post("/agent/run", response_model=AgentRunResponse)
     async def run_agent(
+        request: Request,
         payload: AgentRunRequest,
         current_user: AuthUser = Depends(get_current_user),
     ) -> AgentRunResponse:
+        get_request_logger(request, __name__).info("agent run request received")
         payload.user_id = current_user.user_id
         try:
             return sdk.agent_runner.run(payload)
