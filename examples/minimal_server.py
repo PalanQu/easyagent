@@ -5,6 +5,13 @@ from easyagent.sdk import EasyagentSDK
 
 from easyagent.utils.settings import Settings
 
+# curl -X POST "http://127.0.0.1:8000/agent/run" \
+#  -H "Content-Type: application/json" \
+#  -d '{
+#    "input": "hi","thread_id": "thread_001"
+#  }'
+
+
 load_dotenv(override=False)
 settings = Settings.from_env()
 
