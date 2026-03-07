@@ -2,10 +2,11 @@ from collections.abc import Callable, Sequence
 import logging
 import os
 from pathlib import Path
+import re
 from typing import Any
 
 from deepagents import create_deep_agent
-from deepagents.backends import CompositeBackend, FilesystemBackend, LocalShellBackend
+from deepagents.backends import CompositeBackend, FilesystemBackend, StoreBackend
 from deepagents.backends.protocol import BackendProtocol
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgent
 from fastapi.encoders import jsonable_encoder
@@ -20,6 +21,10 @@ from langchain_openai import ChatOpenAI
 from langgraph.cache.base import BaseCache
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
+from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.store.postgres import PostgresStore
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 
 from easyagent.models.schema.agent import AgentRunRequest, AgentRunResponse
 from easyagent.utils.settings import Settings
@@ -99,20 +104,135 @@ def _create_chat_model(settings: Settings) -> ChatOpenAI:
         model=settings.model_name,
     )
 
+
+def _sanitize_namespace_component(value: object, *, fallback: str) -> str:
+    text = str(value).strip() if value is not None else ""
+    if not text:
+        return fallback
+    sanitized = re.sub(r"[^A-Za-z0-9\-_.@+:~]", "_", text)
+    return sanitized or fallback
+
+
+def _extract_configurable(context: Any) -> dict[str, Any]:
+    runtime = getattr(context, "runtime", None)
+    config = getattr(runtime, "config", {}) if runtime is not None else {}
+    if not isinstance(config, dict):
+        return {}
+    raw_configurable = config.get("configurable")
+    if not isinstance(raw_configurable, dict):
+        return {}
+    return raw_configurable
+
 class ClusterModeRuntimeFactory:
     """Factory for creating cluster mode runtime components."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        sandbox: BackendProtocol | Callable[[Any], BackendProtocol] | None = None,
+    ) -> None:
         self.settings = settings
+        self.sandbox = sandbox
+        self._pool: ConnectionPool | None = None
+
+    def get_cleanup_callbacks(self) -> list[Callable[[], None]]:
+        return [self.close]
 
     def create_runtime_kwargs(self) -> dict:
-        raise NotImplementedError("Cluster mode is not implemented yet")
+        if self.settings.local_mode:
+            raise NotImplementedError("Cluster mode requires local_mode=False")
+        if not self._is_postgres_url(self.settings.database_url):
+            raise ValueError(
+                "Cluster mode requires a Postgres `db_url` "
+                "(e.g. postgresql://user:pass@host:5432/dbname)"
+            )
+
+        pool = ConnectionPool(
+            self.settings.database_url,
+            min_size=self.settings.cluster_pg_pool_min_size,
+            max_size=self.settings.cluster_pg_pool_max_size,
+            kwargs={
+                "autocommit": True,
+                "prepare_threshold": 0,
+                "row_factory": dict_row,
+            },
+        )
+
+        checkpointer = PostgresSaver(pool)
+        store = PostgresStore(pool)
+        checkpointer.setup()
+        store.setup()
+        self._ensure_dirs()
+
+        self._pool = pool
+        return {
+            "checkpointer": checkpointer,
+            "store": store,
+            "backend": self._create_backend_factory(),
+        }
+
+    def close(self) -> None:
+        if self._pool is not None:
+            self._pool.close()
+            self._pool = None
+
+    def _create_backend_factory(self) -> Callable[[Any], BackendProtocol]:
+        def _factory(runtime: Any) -> BackendProtocol:
+            default_backend = self._resolve_default_backend(runtime)
+            return CompositeBackend(
+                default=default_backend,
+                routes={
+                    "/memory/": StoreBackend(runtime=runtime, namespace=self._memory_namespace_factory),
+                    "/memories/": StoreBackend(runtime=runtime, namespace=self._memory_namespace_factory),
+                },
+            )
+
+        return _factory
+
+    def _memory_namespace_factory(self, context: Any) -> tuple[str, ...]:
+        configurable = _extract_configurable(context)
+        user_id = configurable.get("user_id")
+        if user_id is None or not str(user_id).strip():
+            return ("memory", "global")
+        user_component = _sanitize_namespace_component(user_id, fallback="anonymous")
+        return ("memory", user_component)
+
+    def _resolve_default_backend(self, runtime: Any) -> BackendProtocol:
+        if self.sandbox is not None:
+            if callable(self.sandbox):
+                return self.sandbox(runtime)
+            return self.sandbox
+        return FilesystemBackend(root_dir=self.settings.base_path, virtual_mode=True)
+
+    def _ensure_dirs(self) -> None:
+        for path in (
+            self.settings.base_path,
+            self.settings.skills_path,
+            self.settings.memories_path,
+            self.settings.tmp_path,
+        ):
+            Path(path).mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _is_postgres_url(url: str) -> bool:
+        return url.startswith("postgres://") or url.startswith("postgresql://")
+
 
 class LocalModeRuntimeFactory:
     """Factory for creating local mode runtime components."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        sandbox: BackendProtocol | Callable[[Any], BackendProtocol] | None = None,
+    ) -> None:
         self.settings = settings
+        self.sandbox = sandbox
+
+    def get_cleanup_callbacks(self) -> list[Callable[[], None]]:
+        return []
 
     def create_runtime_kwargs(self) -> dict:
         if not self.settings.local_mode:
@@ -124,7 +244,7 @@ class LocalModeRuntimeFactory:
         return {
             "checkpointer": InMemorySaver(),
             "store": InMemoryStore(),
-            "backend": self._create_backend(),
+            "backend": self._create_backend_factory(),
         }
 
     def _ensure_dirs(self) -> None:
@@ -136,20 +256,33 @@ class LocalModeRuntimeFactory:
         ):
             Path(path).mkdir(parents=True, exist_ok=True)
 
-    def _create_backend(self) -> BackendProtocol:
-        return CompositeBackend(
-            default=LocalShellBackend(
-                root_dir=self.settings.base_path,
-                virtual_mode=True,
-                inherit_env=True,
-                timeout=30.0,
-            ),
-            routes={
-                "/skills/": FilesystemBackend(root_dir=self.settings.skills_path, virtual_mode=True),
-                "/memories/": FilesystemBackend(root_dir=self.settings.memories_path, virtual_mode=True),
-                "/tmp/": FilesystemBackend(root_dir=self.settings.tmp_path, virtual_mode=True),
-            },
-        )
+    def _create_backend_factory(self) -> Callable[[Any], BackendProtocol]:
+        def _factory(runtime: Any) -> BackendProtocol:
+            default_backend = self._resolve_default_backend(runtime)
+            return CompositeBackend(
+                default=default_backend,
+                routes={
+                    "/memory/": StoreBackend(runtime=runtime, namespace=self._memory_namespace_factory),
+                    "/memories/": StoreBackend(runtime=runtime, namespace=self._memory_namespace_factory),
+                },
+            )
+
+        return _factory
+
+    def _memory_namespace_factory(self, context: Any) -> tuple[str, ...]:
+        configurable = _extract_configurable(context)
+        user_id = configurable.get("user_id")
+        if user_id is None or not str(user_id).strip():
+            return ("memory", "global")
+        user_component = _sanitize_namespace_component(user_id, fallback="anonymous")
+        return ("memory", user_component)
+
+    def _resolve_default_backend(self, runtime: Any) -> BackendProtocol:
+        if self.sandbox is not None:
+            if callable(self.sandbox):
+                return self.sandbox(runtime)
+            return self.sandbox
+        return FilesystemBackend(root_dir=self.settings.base_path, virtual_mode=True)
 
 
 class DeepAgentRunner:
@@ -172,16 +305,25 @@ class DeepAgentRunner:
         context_schema: type[Any] | None = None,
         interrupt_on: dict[str, bool | InterruptOnConfig] | None = None,
         cache: BaseCache | None = None,
+        sandbox: BackendProtocol | Callable[[Any], BackendProtocol] | None = None,
     ) -> None:
+        self._cluster_mode = not settings.local_mode
+        self._cleanup_callbacks: list[Callable[[], None]] = []
+
         # Build agent kwargs
         kwargs: dict[str, Any] = {
             "model": _create_chat_model(settings),
         }
 
-        # Local mode runtime (checkpointer, store, backend)
+        # Runtime (checkpointer, store, backend)
+        runtime_factory: LocalModeRuntimeFactory | ClusterModeRuntimeFactory
         if settings.local_mode:
-            runtime_kwargs = LocalModeRuntimeFactory(settings).create_runtime_kwargs()
-            kwargs.update(runtime_kwargs)
+            runtime_factory = LocalModeRuntimeFactory(settings, sandbox=sandbox)
+        else:
+            runtime_factory = ClusterModeRuntimeFactory(settings, sandbox=sandbox)
+        runtime_kwargs = runtime_factory.create_runtime_kwargs()
+        kwargs.update(runtime_kwargs)
+        self._cleanup_callbacks.extend(runtime_factory.get_cleanup_callbacks())
 
         if system_prompt:
             kwargs["system_prompt"] = system_prompt
@@ -210,6 +352,9 @@ class DeepAgentRunner:
 
     def run(self, payload: AgentRunRequest) -> AgentRunResponse:
         """Execute the precompiled agent with the given runtime input."""
+        if self._cluster_mode and not (payload.thread_id and payload.thread_id.strip()):
+            raise ValueError("`thread_id` is required in cluster mode for persistent checkpointing")
+
         invoke_input: dict
         if payload.invoke_input is not None:
             invoke_input = dict(payload.invoke_input)
@@ -258,6 +403,13 @@ class DeepAgentRunner:
         final_output = self._extract_final_output(state)
         safe_state = self._safe_jsonable(state)
         return AgentRunResponse(final_output=final_output, state=safe_state)
+
+    def close(self) -> None:
+        for callback in reversed(self._cleanup_callbacks):
+            try:
+                callback()
+            except Exception:  # noqa: BLE001
+                logger.exception("failed to cleanup runner runtime resource")
 
     def _initialize_langfuse(self) -> bool:
         if not os.getenv("LANGFUSE_BASE_URL"):

@@ -1,4 +1,5 @@
 from collections.abc import Callable, Generator, Sequence
+from contextlib import asynccontextmanager
 import logging
 from typing import Any
 
@@ -20,6 +21,7 @@ from easyagent.utils.logging import setup_logging
 from easyagent.utils.settings import Settings
 
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgent
+from deepagents.backends.protocol import BackendProtocol
 from langchain.agents.middleware import InterruptOnConfig
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain.agents.structured_output import ResponseFormat
@@ -38,6 +40,7 @@ __all__ = [
     "InterruptOnConfig",
     "BaseTool",
     "BaseCache",
+    "BackendProtocol",
 ]
 
 logger = logging.getLogger(__name__)
@@ -91,6 +94,7 @@ class EasyagentSDK:
         context_schema: type[Any] | None = None,
         interrupt_on: dict[str, bool | InterruptOnConfig] | None = None,
         cache: BaseCache | None = None,
+        sandbox: BackendProtocol | Callable[[Any], BackendProtocol] | None = None,
         auth_provider: AuthProvider | None = None,
         a2a_enabled: bool = True,
         a2a_public_base_url: str = "http://127.0.0.1:8000",
@@ -120,6 +124,7 @@ class EasyagentSDK:
             context_schema: Context schema for the deep agent.
             interrupt_on: Mapping of tool names to interrupt configurations, used to pause execution on specific tool calls for human approval.
             cache: Cache used by the agent.
+            sandbox: Optional sandbox backend (or backend factory). If provided, it is used as default backend.
             auth_provider: Custom authentication provider used to resolve user identity for tenant isolation.
             a2a_enabled: Whether to expose A2A protocol endpoints.
             a2a_public_base_url: Public base URL used to build AgentCard.url (e.g. "http://127.0.0.1:8000").
@@ -186,6 +191,7 @@ class EasyagentSDK:
             context_schema=context_schema,
             interrupt_on=interrupt_on,
             cache=cache,
+            sandbox=sandbox,
         )
 
         self._router: APIRouter | None = None
@@ -221,7 +227,14 @@ class EasyagentSDK:
             mount_a2a_routes(app=app, runner=self.agent_runner, config=self.a2a_config)
 
     def create_app(self, prefix: str = "") -> FastAPI:
-        app = FastAPI(title=self.title, version=self.version)
+        @asynccontextmanager
+        async def lifespan(_: FastAPI):
+            try:
+                yield
+            finally:
+                self.agent_runner.close()
+
+        app = FastAPI(title=self.title, version=self.version, lifespan=lifespan)
         app.middleware("http")(build_logging_context_middleware(self.get_current_user))
         self.mount_fastapi(app, prefix=prefix)
         return app

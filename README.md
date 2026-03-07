@@ -141,8 +141,11 @@ Required:
 
 Optional examples:
 - `EASYAGENT_BASE_PATH`
+- `EASYAGENT_LOCAL_MODE` (`true` for local in-memory runtime, `false` for cluster runtime)
 - `EASYAGENT_DB_BACKEND` (`sqlite` or `postgres`)
 - `EASYAGENT_DB_URL` (required if Postgres)
+- `EASYAGENT_CLUSTER_PG_POOL_MIN_SIZE` (default `1`)
+- `EASYAGENT_CLUSTER_PG_POOL_MAX_SIZE` (default `20`)
 - `LANGFUSE_BASE_URL` (+ Langfuse keys)
 
 ### 3) Run an example
@@ -158,6 +161,17 @@ curl -X POST "http://127.0.0.1:8000/agent/run" \
   -H "Content-Type: application/json" \
   -d '{"input":"hi","thread_id":"thread_001"}'
 ```
+
+### Cluster Runtime Persistence
+
+Set `EASYAGENT_LOCAL_MODE=false` and point `EASYAGENT_DB_URL` to Postgres.
+
+In this mode EasyAgent uses:
+- `PostgresSaver` for LangGraph checkpoints
+- `PostgresStore` for shared runtime store
+- `StoreBackend` for agent file operations (skills/memory/filesystem tools) backed by `PostgresStore`
+
+`thread_id` is required on `/agent/run` requests in cluster mode so each conversation can be resumed from persisted checkpoints.
 
 ## Example Scenarios
 

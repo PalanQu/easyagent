@@ -38,6 +38,8 @@ class Settings(BaseModel):
     db_url: str | None = None
     db_echo: bool = False
     db_sqlite_filename: str = "easyagent.db"
+    cluster_pg_pool_min_size: int = 1
+    cluster_pg_pool_max_size: int = 20
 
     @model_validator(mode="after")
     def _fill_defaults(self) -> "Settings":
@@ -96,4 +98,6 @@ class Settings(BaseModel):
             db_url=env("DB_URL"),
             db_echo=_parse_bool(env("DB_ECHO"), False),
             db_sqlite_filename=env("DB_SQLITE_FILENAME") or "easyagent.db",
+            cluster_pg_pool_min_size=int(env("CLUSTER_PG_POOL_MIN_SIZE") or "1"),
+            cluster_pg_pool_max_size=int(env("CLUSTER_PG_POOL_MAX_SIZE") or "20"),
         )
