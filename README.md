@@ -94,6 +94,7 @@ Client
   - Discovers remote A2A agents from a gateway and wraps them as callable subagents.
 - `gateway/`
   - Lightweight agent registry service used by EasyAgent instances to discover remote subagents.
+  - Maintained as an independent project with its own `gateway/pyproject.toml`.
 - `easyagent/services/` + `easyagent/repos/`
   - Service/repository split for user and session domain logic.
   - Backend factory supports SQLite and Postgres repo implementations.
@@ -118,6 +119,8 @@ Current capability:
 - Register remote agent endpoints via `POST /agents`.
 - List registered endpoints via `GET /agents`.
 - Enable runtime subagent discovery in EasyAgent (`a2a_gateway_url`), where discovered A2A agents are converted into callable subagents.
+- Run gateway service from repo root:
+  - `uv run --project gateway uvicorn gateway.app:app --host 0.0.0.0 --port 8010`
 
 Planned extension direction:
 - Add discovery metadata and APIs for reusable skills.

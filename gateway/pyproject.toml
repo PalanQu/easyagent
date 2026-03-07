@@ -1,0 +1,17 @@
+[project]
+name = "easyagent-gateway"
+version = "0.1.0"
+description = "Lightweight gateway service for EasyAgent agent discovery."
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.116.1",
+    "pydantic>=2.11.7",
+    "uvicorn>=0.41.0",
+]
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["gateway*"]

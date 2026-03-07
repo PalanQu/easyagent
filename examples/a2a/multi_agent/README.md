@@ -1,4 +1,4 @@
-uv run python gateway/main.py
+uv run --project gateway uvicorn gateway.app:app --host 0.0.0.0 --port 8010
 uv run python examples/a2a/multi_agent/sub_agent.py
 uv run python examples/a2a/multi_agent/master_agent.py
 
