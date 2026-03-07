@@ -5,11 +5,12 @@ from typing import Any
 from fastapi import APIRouter, FastAPI, Request
 from sqlmodel import Session
 
-from easyagent.adapters.a2a import mount_a2a_routes
 from easyagent.adapters.a2a.server import A2AServerConfig
 from easyagent.adapters.fastapi import build_easyagent_router
 from easyagent.adapters.fastapi.middleware import build_logging_context_middleware
 from easyagent.agent.agent import DeepAgentRunner
+from easyagent.agent.discovery import discover_subagents_from_gateway
+from easyagent.adapters.a2a import mount_a2a_routes
 from easyagent.auth import AuthProvider, AuthUser, NoopAuthProvider
 from easyagent.repos.factory import build_session_repo, build_user_repo
 from easyagent.services.session_service import SessionService
@@ -96,6 +97,11 @@ class EasyagentSDK:
         a2a_rpc_path: str = "/a2a",
         a2a_agent_name: str = "Easyagent",
         a2a_agent_description: str = "Easyagent compatible A2A agent.",
+        a2a_gateway_url: str | None = None,
+        a2a_gateway_agents_path: str = "/agents",
+        a2a_gateway_timeout_seconds: float = 10.0,
+        a2a_gateway_subagent_name_prefix: str = "remote_",
+        a2a_gateway_fail_fast: bool = False,
         title: str = "Easyagent API",
         version: str = "0.1.0",
     ) -> None:
@@ -120,6 +126,11 @@ class EasyagentSDK:
             a2a_rpc_path: JSON-RPC path for A2A endpoint, mounted on the same FastAPI app.
             a2a_agent_name: Agent name shown in A2A AgentCard.
             a2a_agent_description: Agent description shown in A2A AgentCard.
+            a2a_gateway_url: Gateway base URL used to discover remote A2A agents.
+            a2a_gateway_agents_path: Path on gateway used to list registered agent addresses.
+            a2a_gateway_timeout_seconds: Timeout used when calling gateway and remote card endpoints.
+            a2a_gateway_subagent_name_prefix: Prefix added to discovered subagent names.
+            a2a_gateway_fail_fast: Raise initialization error when gateway discovery fails.
             title: FastAPI application title.
             version: FastAPI application version.
         """
@@ -143,6 +154,26 @@ class EasyagentSDK:
             version=version,
         )
 
+        resolved_subagents = list(subagents or [])
+        if a2a_gateway_url:
+            try:
+                discovered = discover_subagents_from_gateway(
+                    gateway_url=a2a_gateway_url,
+                    agents_path=a2a_gateway_agents_path,
+                    timeout_seconds=a2a_gateway_timeout_seconds,
+                    name_prefix=a2a_gateway_subagent_name_prefix,
+                )
+                resolved_subagents.extend(discovered)
+                logger.info(
+                    "Discovered %d remote subagents from gateway %s",
+                    len(discovered),
+                    a2a_gateway_url,
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to discover remote subagents from gateway: %s", a2a_gateway_url)
+                if a2a_gateway_fail_fast:
+                    raise
+
         self.agent_runner = DeepAgentRunner(
             settings,
             system_prompt=system_prompt,
@@ -150,7 +181,7 @@ class EasyagentSDK:
             memory=memory,
             tools=tools,
             middleware=middleware,
-            subagents=subagents,
+            subagents=resolved_subagents if resolved_subagents else None,
             response_format=response_format,
             context_schema=context_schema,
             interrupt_on=interrupt_on,
