@@ -25,6 +25,7 @@ from deepagents.backends.protocol import BackendProtocol
 from langchain.agents.middleware import InterruptOnConfig
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain.agents.structured_output import ResponseFormat
+from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 from langgraph.cache.base import BaseCache
 
@@ -95,6 +96,7 @@ class EasyagentSDK:
         interrupt_on: dict[str, bool | InterruptOnConfig] | None = None,
         cache: BaseCache | None = None,
         sandbox: BackendProtocol | Callable[[Any], BackendProtocol] | None = None,
+        model: BaseChatModel | None = None,
         auth_provider: AuthProvider | None = None,
         a2a_enabled: bool = True,
         a2a_public_base_url: str = "http://127.0.0.1:8000",
@@ -125,6 +127,7 @@ class EasyagentSDK:
             interrupt_on: Mapping of tool names to interrupt configurations, used to pause execution on specific tool calls for human approval.
             cache: Cache used by the agent.
             sandbox: Optional sandbox backend (or backend factory). If provided, it is used as default backend.
+            model: Optional injected chat model. If omitted, a ChatOpenAI model is created from `settings`.
             auth_provider: Custom authentication provider used to resolve user identity for tenant isolation.
             a2a_enabled: Whether to expose A2A protocol endpoints.
             a2a_public_base_url: Public base URL used to build AgentCard.url (e.g. "http://127.0.0.1:8000").
@@ -192,6 +195,7 @@ class EasyagentSDK:
             interrupt_on=interrupt_on,
             cache=cache,
             sandbox=sandbox,
+            model=model,
         )
 
         self._router: APIRouter | None = None

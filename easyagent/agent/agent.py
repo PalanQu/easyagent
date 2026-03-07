@@ -16,6 +16,7 @@ from langchain.agents.middleware import InterruptOnConfig
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain.agents.structured_output import ResponseFormat
 from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 from langgraph.cache.base import BaseCache
@@ -329,13 +330,14 @@ class DeepAgentRunner:
         interrupt_on: dict[str, bool | InterruptOnConfig] | None = None,
         cache: BaseCache | None = None,
         sandbox: BackendProtocol | Callable[[Any], BackendProtocol] | None = None,
+        model: BaseChatModel | None = None,
     ) -> None:
         self._cluster_mode = not settings.local_mode
         self._cleanup_callbacks: list[Callable[[], None]] = []
 
         # Build agent kwargs
         kwargs: dict[str, Any] = {
-            "model": _create_chat_model(settings),
+            "model": model or _create_chat_model(settings),
         }
 
         # Runtime (checkpointer, store, backend)
