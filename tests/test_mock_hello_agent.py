@@ -6,6 +6,7 @@ from uuid import uuid4
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.tools import tool
 
 from easyagent.sdk import EasyagentSDK, Settings
 from easyagent.models.schema.agent import AgentRunRequest
@@ -221,6 +222,109 @@ class TestMockHelloAgent(unittest.TestCase):
                 )
             )
             self.assertIn("do not know", (other_user_response.final_output or "").lower())
+            sdk.agent_runner.close()
+
+    def test_local_mode_custom_tool_can_be_called(self) -> None:
+        @tool
+        def add(a: float, b: float) -> float:
+            """Add two numbers."""
+            return a + b
+
+        class _AddToolMockModel(BaseChatModel):
+            def __init__(self):
+                super().__init__()
+                self._bound_tools: set[str] = set()
+
+            @property
+            def _llm_type(self) -> str:
+                return "add-tool-mock-model"
+
+            def bind_tools(self, tools, *, tool_choice=None, **kwargs):  # noqa: ANN001, ANN003, ANN201
+                bound = _AddToolMockModel()
+                names: set[str] = set()
+                if isinstance(tools, list):
+                    for item in tools:
+                        if isinstance(item, dict):
+                            name = item.get("name")
+                        else:
+                            name = getattr(item, "name", None)
+                        if isinstance(name, str) and name:
+                            names.add(name)
+                bound._bound_tools = names
+                return bound
+
+            def _generate(  # noqa: PLR0913
+                self,
+                messages: list[BaseMessage],
+                stop: list[str] | None = None,
+                run_manager=None,  # noqa: ANN001
+                **kwargs,  # noqa: ANN003
+            ) -> ChatResult:
+                user_text = ""
+                for message in reversed(messages):
+                    if isinstance(message, HumanMessage):
+                        user_text = str(message.content)
+                        break
+
+                tool_content = None
+                for message in reversed(messages):
+                    if getattr(message, "type", None) == "tool":
+                        tool_content = str(getattr(message, "content", ""))
+                        break
+
+                if "2 + 3" in user_text or "2+3" in user_text:
+                    if tool_content is None:
+                        if self._bound_tools and "add" not in self._bound_tools:
+                            raise ValueError("tool `add` is not bound on model")
+                        return ChatResult(
+                            generations=[
+                                ChatGeneration(
+                                    message=AIMessage(
+                                        content="I will calculate with add tool.",
+                                        tool_calls=[
+                                            {
+                                                "id": f"call_{uuid4().hex}",
+                                                "name": "add",
+                                                "args": {"a": 2, "b": 3},
+                                                "type": "tool_call",
+                                            }
+                                        ],
+                                    )
+                                )
+                            ]
+                        )
+                    return ChatResult(
+                        generations=[ChatGeneration(message=AIMessage(content=f"Final result: {tool_content}"))]
+                    )
+
+                return ChatResult(generations=[ChatGeneration(message=AIMessage(content="mocked: fallback"))])
+
+        with TemporaryDirectory() as tmpdir:
+            settings = Settings(
+                model_key="dummy-key",
+                model_base_url="https://example.com/v1",
+                model_name="real-model-not-used",
+                base_path=Path(tmpdir),
+                local_mode=True,
+            )
+            sdk = EasyagentSDK(
+                settings=settings,
+                system_prompt="Use tools when needed.",
+                tools=[add],
+                model=_AddToolMockModel(),
+            )
+
+            tool_names = self._extract_tool_names(sdk)
+            self.assertIn("add", tool_names)
+
+            response = sdk.agent_runner.run(
+                AgentRunRequest(
+                    input="Please calculate 2 + 3.",
+                    thread_id="thread_test_local_tool_001",
+                    user_id="user_tool_test_001",
+                )
+            )
+            self.assertIn("5", response.final_output or "")
             sdk.agent_runner.close()
 
 
