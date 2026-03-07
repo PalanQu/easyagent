@@ -45,7 +45,11 @@ class Settings(BaseModel):
     def _fill_defaults(self) -> "Settings":
         self.base_path = self.base_path.expanduser().resolve()
         self.skills_path = self.skills_path or self.base_path / "skills"
-        self.memories_path = self.memories_path or self.base_path / "memories"
+        if self.memories_path is None:
+            if self.local_mode:
+                self.memories_path = Path("/tmp/.easyagent/memories")
+            else:
+                self.memories_path = self.base_path / "memories"
         self.tmp_path = self.tmp_path or self.base_path / "tmp"
 
         if self.db_url:

@@ -141,12 +141,16 @@ Required:
 
 Optional examples:
 - `EASYAGENT_BASE_PATH`
-- `EASYAGENT_LOCAL_MODE` (`true` for local in-memory runtime, `false` for cluster runtime)
+- `EASYAGENT_LOCAL_MODE` (`true` for local runtime, `false` for cluster runtime)
 - `EASYAGENT_DB_BACKEND` (`sqlite` or `postgres`)
 - `EASYAGENT_DB_URL` (required if Postgres)
 - `EASYAGENT_CLUSTER_PG_POOL_MIN_SIZE` (default `1`)
 - `EASYAGENT_CLUSTER_PG_POOL_MAX_SIZE` (default `20`)
 - `LANGFUSE_BASE_URL` (+ Langfuse keys)
+
+Postgres driver note:
+- EasyAgent uses `psycopg[binary]` (v3), not `psycopg2`.
+- Keep `EASYAGENT_DB_URL` as `postgresql://...`; SQLAlchemy is normalized internally to use `psycopg`.
 
 ### 3) Run an example
 
@@ -172,6 +176,13 @@ In this mode EasyAgent uses:
 - `StoreBackend` for agent file operations (skills/memory/filesystem tools) backed by `PostgresStore`
 
 `thread_id` is required on `/agent/run` requests in cluster mode so each conversation can be resumed from persisted checkpoints.
+
+### Long-Term Memory
+
+EasyAgent enables deepagents memory by default with source `["/memory/AGENTS.md"]`.
+
+- Local mode: `/memory/*` and `/memories/*` are persisted to filesystem under `EASYAGENT_MEMORIES_PATH` (default `/tmp/.easyagent/memories`), namespaced by `user_id`.
+- Cluster mode: `/memory/*` is persisted in `PostgresStore` via `StoreBackend`, namespaced by `user_id`.
 
 ## Example Scenarios
 

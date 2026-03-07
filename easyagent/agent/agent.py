@@ -148,8 +148,9 @@ class ClusterModeRuntimeFactory:
                 "(e.g. postgresql://user:pass@host:5432/dbname)"
             )
 
+        pool_conninfo = self._to_pool_conninfo(self.settings.database_url)
         pool = ConnectionPool(
-            self.settings.database_url,
+            pool_conninfo,
             min_size=self.settings.cluster_pg_pool_min_size,
             max_size=self.settings.cluster_pg_pool_max_size,
             kwargs={
@@ -184,7 +185,6 @@ class ClusterModeRuntimeFactory:
                 default=default_backend,
                 routes={
                     "/memory/": StoreBackend(runtime=runtime, namespace=self._memory_namespace_factory),
-                    "/memories/": StoreBackend(runtime=runtime, namespace=self._memory_namespace_factory),
                 },
             )
 
@@ -209,14 +209,26 @@ class ClusterModeRuntimeFactory:
         for path in (
             self.settings.base_path,
             self.settings.skills_path,
-            self.settings.memories_path,
             self.settings.tmp_path,
         ):
             Path(path).mkdir(parents=True, exist_ok=True)
 
     @staticmethod
     def _is_postgres_url(url: str) -> bool:
-        return url.startswith("postgres://") or url.startswith("postgresql://")
+        return (
+            url.startswith("postgres://")
+            or url.startswith("postgresql://")
+            or url.startswith("postgres+psycopg://")
+            or url.startswith("postgresql+psycopg://")
+        )
+
+    @staticmethod
+    def _to_pool_conninfo(url: str) -> str:
+        if url.startswith("postgresql+psycopg://"):
+            return "postgresql://" + url[len("postgresql+psycopg://") :]
+        if url.startswith("postgres+psycopg://"):
+            return "postgres://" + url[len("postgres+psycopg://") :]
+        return url
 
 
 class LocalModeRuntimeFactory:
@@ -259,23 +271,27 @@ class LocalModeRuntimeFactory:
     def _create_backend_factory(self) -> Callable[[Any], BackendProtocol]:
         def _factory(runtime: Any) -> BackendProtocol:
             default_backend = self._resolve_default_backend(runtime)
+            memory_backend = self._resolve_memory_backend(runtime)
             return CompositeBackend(
                 default=default_backend,
                 routes={
-                    "/memory/": StoreBackend(runtime=runtime, namespace=self._memory_namespace_factory),
-                    "/memories/": StoreBackend(runtime=runtime, namespace=self._memory_namespace_factory),
+                    "/memory/": memory_backend,
+                    "/memories/": memory_backend,
                 },
             )
 
         return _factory
 
-    def _memory_namespace_factory(self, context: Any) -> tuple[str, ...]:
-        configurable = _extract_configurable(context)
-        user_id = configurable.get("user_id")
+    def _resolve_memory_backend(self, runtime: Any) -> BackendProtocol:
+        configurable = runtime.config.get("configurable", {}) if hasattr(runtime, "config") else {}
+        user_id = configurable.get("user_id") if isinstance(configurable, dict) else None
         if user_id is None or not str(user_id).strip():
-            return ("memory", "global")
-        user_component = _sanitize_namespace_component(user_id, fallback="anonymous")
-        return ("memory", user_component)
+            root_dir = self.settings.memories_path
+        else:
+            user_component = _sanitize_namespace_component(user_id, fallback="anonymous")
+            root_dir = self.settings.memories_path / user_component
+        root_dir.mkdir(parents=True, exist_ok=True)
+        return FilesystemBackend(root_dir=root_dir, virtual_mode=True)
 
     def _resolve_default_backend(self, runtime: Any) -> BackendProtocol:
         if self.sandbox is not None:
@@ -329,8 +345,7 @@ class DeepAgentRunner:
             kwargs["system_prompt"] = system_prompt
         if skills is not None:
             kwargs["skills"] = skills
-        if memory is not None:
-            kwargs["memory"] = memory
+        kwargs["memory"] = memory if memory is not None else ["/memory/AGENTS.md"]
         if tools is not None:
             kwargs["tools"] = tools
         if middleware:

@@ -17,13 +17,24 @@ class Database:
 
     def _create_engine(self):
         connect_args: dict[str, bool] = {}
+        database_url = self.settings.database_url
         if self.settings.db_backend == "sqlite":
             connect_args["check_same_thread"] = False
+        elif self.settings.db_backend == "postgres":
+            database_url = self._to_sqlalchemy_postgres_url(database_url)
         return create_engine(
-            self.settings.database_url,
+            database_url,
             connect_args=connect_args,
             echo=self.settings.db_echo,
         )
+
+    @staticmethod
+    def _to_sqlalchemy_postgres_url(url: str) -> str:
+        if url.startswith("postgresql://"):
+            return "postgresql+psycopg://" + url[len("postgresql://") :]
+        if url.startswith("postgres://"):
+            return "postgresql+psycopg://" + url[len("postgres://") :]
+        return url
 
     def create_tables(self) -> None:
         SQLModel.metadata.create_all(self.engine)
