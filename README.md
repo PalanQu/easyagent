@@ -22,7 +22,7 @@ It gives you a clean way to:
 - Gateway-based subagent discovery today, with an extension path for skill/tool discovery.
 - User/session management APIs (`/users`, `/sessions`, etc.).
 - Pluggable authentication (`Noop`, header-based, or custom callable provider).
-- Local runtime sandbox for skills/memories/tmp file routes.
+- Local runtime sandbox for skills/memory/tmp file routes.
 - Optional Langfuse tracing when `LANGFUSE_BASE_URL` is configured.
 
 ## Architecture
@@ -184,13 +184,14 @@ In this mode EasyAgent uses:
 
 EasyAgent enables deepagents memory by default with source `["/memory/AGENTS.md"]`.
 
-- Local mode: `/memory/*` and `/memories/*` are persisted to filesystem under `EASYAGENT_MEMORIES_PATH` (default `/tmp/.easyagent/memories`), namespaced by `user_id`.
+- Local mode: `/memory/*` is persisted to filesystem under `EASYAGENT_MEMORIES_PATH` (default `/tmp/.easyagent/memory`), namespaced by `user_id`.
 - Cluster mode: `/memory/*` is persisted in `PostgresStore` via `StoreBackend`, namespaced by `user_id`.
 
 ## Example Scenarios
 
 - Basic chat agent: `examples/hello_world/`
 - Auth-integrated agent: `examples/auth/`
+- Skill-enabled agent (download + load skill): `examples/skills/`
 - Local multi-agent (master + math subagent): `examples/multi_agent/`
 - A2A hello world + client: `examples/a2a/hello_world/`
 - A2A gateway multi-agent topology: `examples/a2a/multi_agent/` + `gateway/`

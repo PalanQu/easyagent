@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 from deepagents import create_deep_agent
-from deepagents.backends import CompositeBackend, FilesystemBackend, StoreBackend
+from deepagents.backends import CompositeBackend, FilesystemBackend, LocalShellBackend, StoreBackend
 from deepagents.backends.protocol import BackendProtocol
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgent
 from fastapi.encoders import jsonable_encoder
@@ -203,7 +203,11 @@ class ClusterModeRuntimeFactory:
             if callable(self.sandbox):
                 return self.sandbox(runtime)
             return self.sandbox
-        return FilesystemBackend(root_dir=self.settings.base_path, virtual_mode=True)
+        return LocalShellBackend(
+            root_dir=self.settings.base_path,
+            virtual_mode=True,
+            inherit_env=True,
+        )
 
     def _ensure_dirs(self) -> None:
         for path in (
@@ -276,7 +280,6 @@ class LocalModeRuntimeFactory:
                 default=default_backend,
                 routes={
                     "/memory/": memory_backend,
-                    "/memories/": memory_backend,
                 },
             )
 
@@ -298,7 +301,11 @@ class LocalModeRuntimeFactory:
             if callable(self.sandbox):
                 return self.sandbox(runtime)
             return self.sandbox
-        return FilesystemBackend(root_dir=self.settings.base_path, virtual_mode=True)
+        return LocalShellBackend(
+            root_dir=self.settings.base_path,
+            virtual_mode=True,
+            inherit_env=True,
+        )
 
 
 class DeepAgentRunner:

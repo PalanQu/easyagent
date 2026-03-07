@@ -18,10 +18,10 @@ class Database:
     def _create_engine(self):
         connect_args: dict[str, bool] = {}
         database_url = self.settings.database_url
-        if self.settings.db_backend == "sqlite":
-            connect_args["check_same_thread"] = False
-        elif self.settings.db_backend == "postgres":
+        if database_url.startswith("postgresql://") or database_url.startswith("postgres://"):
             database_url = self._to_sqlalchemy_postgres_url(database_url)
+        if database_url.startswith("sqlite:") or self.settings.db_backend == "sqlite":
+            connect_args["check_same_thread"] = False
         return create_engine(
             database_url,
             connect_args=connect_args,
