@@ -99,6 +99,14 @@ def _create_chat_model(settings: Settings) -> ChatOpenAI:
         model=settings.model_name,
     )
 
+class ClusterModeRuntimeFactory:
+    """Factory for creating cluster mode runtime components."""
+
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+
+    def create_runtime_kwargs(self) -> dict:
+        raise NotImplementedError("Cluster mode is not implemented yet")
 
 class LocalModeRuntimeFactory:
     """Factory for creating local mode runtime components."""

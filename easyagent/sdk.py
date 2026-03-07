@@ -5,6 +5,8 @@ from typing import Any
 from fastapi import APIRouter, FastAPI, Request
 from sqlmodel import Session
 
+from easyagent.adapters.a2a import mount_a2a_routes
+from easyagent.adapters.a2a.server import A2AServerConfig
 from easyagent.adapters.fastapi import build_easyagent_router
 from easyagent.adapters.fastapi.middleware import build_logging_context_middleware
 from easyagent.agent.agent import DeepAgentRunner
@@ -89,6 +91,11 @@ class EasyagentSDK:
         interrupt_on: dict[str, bool | InterruptOnConfig] | None = None,
         cache: BaseCache | None = None,
         auth_provider: AuthProvider | None = None,
+        a2a_enabled: bool = True,
+        a2a_public_base_url: str = "http://127.0.0.1:8000",
+        a2a_rpc_path: str = "/a2a",
+        a2a_agent_name: str = "Easyagent",
+        a2a_agent_description: str = "Easyagent compatible A2A agent.",
         title: str = "Easyagent API",
         version: str = "0.1.0",
     ) -> None:
@@ -108,6 +115,11 @@ class EasyagentSDK:
             interrupt_on: Mapping of tool names to interrupt configurations, used to pause execution on specific tool calls for human approval.
             cache: Cache used by the agent.
             auth_provider: Custom authentication provider used to resolve user identity for tenant isolation.
+            a2a_enabled: Whether to expose A2A protocol endpoints.
+            a2a_public_base_url: Public base URL used to build AgentCard.url (e.g. "http://127.0.0.1:8000").
+            a2a_rpc_path: JSON-RPC path for A2A endpoint, mounted on the same FastAPI app.
+            a2a_agent_name: Agent name shown in A2A AgentCard.
+            a2a_agent_description: Agent description shown in A2A AgentCard.
             title: FastAPI application title.
             version: FastAPI application version.
         """
@@ -122,6 +134,14 @@ class EasyagentSDK:
         self.title = title
         self.version = version
         self.auth_provider = auth_provider or NoopAuthProvider()
+        self.a2a_enabled = a2a_enabled
+        self.a2a_config = A2AServerConfig(
+            public_base_url=a2a_public_base_url,
+            rpc_path=a2a_rpc_path,
+            agent_name=a2a_agent_name,
+            agent_description=a2a_agent_description,
+            version=version,
+        )
 
         self.agent_runner = DeepAgentRunner(
             settings,
@@ -166,6 +186,8 @@ class EasyagentSDK:
 
     def mount_fastapi(self, app: FastAPI, prefix: str = "") -> None:
         app.include_router(self.router(), prefix=prefix)
+        if self.a2a_enabled:
+            mount_a2a_routes(app=app, runner=self.agent_runner, config=self.a2a_config)
 
     def create_app(self, prefix: str = "") -> FastAPI:
         app = FastAPI(title=self.title, version=self.version)

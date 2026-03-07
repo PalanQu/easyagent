@@ -9,7 +9,7 @@ _DEFAULT_LOG_FORMAT = (
     "%(asctime)s %(levelname)s [%(name)s]%(request_context)s "
     "%(filename)s:%(lineno)d - %(message)s"
 )
-_DEFAULT_DATE_FORMAT = "%Y-%m-%d %H:%M:%S%z"
+_DEFAULT_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 _DEFAULT_CONTEXT_VALUE = "-"
 _DEFAULT_CONTEXT = {
     "user_id": _DEFAULT_CONTEXT_VALUE,
