@@ -9,6 +9,7 @@ class AgentRunRequest(BaseModel):
     input: str = Field(default="", description="User input message.")
     files: dict[str, str] | None = Field(default=None, description="Optional virtual files for StateBackend.")
     thread_id: str | None = Field(default=None, description="Optional thread id for checkpointing.")
+    run_id: str | None = Field(default=None, description="Optional run id for AG-UI event correlation.")
     user_id: str | None = Field(default=None, description="Optional user id in graph configurable.")
     invoke_input: dict[str, Any] | None = Field(
         default=None,

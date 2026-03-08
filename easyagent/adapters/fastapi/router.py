@@ -1,6 +1,8 @@
+import json
 from typing import Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from sqlmodel import Session
 
 from easyagent.models.schema.agent import AgentRunRequest, AgentRunResponse
@@ -23,6 +25,12 @@ class EasyagentSDKRouterProtocol(Protocol):
 
 def build_easyagent_router(sdk: EasyagentSDKRouterProtocol) -> APIRouter:
     router = APIRouter(tags=["easyagent"])
+
+    def _encode_sse(payload: dict) -> str:
+        event_type = payload.get("type")
+        if isinstance(event_type, str) and event_type:
+            return f"event: {event_type}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+        return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
     async def get_current_user(request: Request) -> AuthUser:
         cached_user = getattr(request.state, "auth_user", None)
@@ -48,6 +56,29 @@ def build_easyagent_router(sdk: EasyagentSDKRouterProtocol) -> APIRouter:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"agent run failed: {exc}") from exc
+
+    @router.post("/ag-ui")
+    async def run_agent_ag_ui(
+        request: Request,
+        payload: AgentRunRequest,
+        current_user: AuthUser = Depends(get_current_user),
+    ) -> StreamingResponse:
+        get_request_logger(request, __name__).info("ag-ui stream request received")
+        payload.user_id = current_user.user_id
+
+        def event_stream():
+            for event in sdk.agent_runner.iter_ag_ui_events(payload):
+                yield _encode_sse(event.model_dump(mode="json", exclude_none=True))
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     @router.post("/users", response_model=UserOut, status_code=201)
     def create_user(

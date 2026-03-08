@@ -107,6 +107,7 @@ Client
 - `POST /agent/run` -> run the agent with:
   - `input` or raw `invoke_input`,
   - optional `thread_id`, `user_id`, `files`, `invoke_config`.
+- `POST /ag-ui` -> AG-UI compatible SSE stream with lifecycle/text/tool/state/custom events.
 - `POST /users`, `GET /users/by-external-id`
 - `POST /sessions`, `GET /sessions/{session_id}`, `GET /users/{user_id}/sessions`
 - A2A (enabled by default): `/.well-known/agent-card.json` and `/a2a`
@@ -193,6 +194,7 @@ EasyAgent enables deepagents memory by default with source `["/memory/AGENTS.md"
 - Auth-integrated agent: `examples/auth/`
 - Skill-enabled agent (download + load skill): `examples/skills/`
 - Local multi-agent (master + math subagent): `examples/multi_agent/`
+- AG-UI SSE client demo: `examples/ag_ui/stream_client.py`
 - A2A hello world + client: `examples/a2a/hello_world/`
 - A2A gateway multi-agent topology: `examples/a2a/multi_agent/` + `gateway/`
 

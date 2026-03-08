@@ -1,9 +1,10 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 import logging
 import os
 from pathlib import Path
 import re
 from typing import Any
+from uuid import uuid4
 
 from deepagents import create_deep_agent
 from deepagents.backends import CompositeBackend, FilesystemBackend, LocalShellBackend, StoreBackend
@@ -28,6 +29,7 @@ from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
 from easyagent.models.schema.agent import AgentRunRequest, AgentRunResponse
+from easyagent.models.schema.ag_ui import AGUIEvent
 from easyagent.utils.settings import Settings
 
 
@@ -380,6 +382,166 @@ class DeepAgentRunner:
 
     def run(self, payload: AgentRunRequest) -> AgentRunResponse:
         """Execute the precompiled agent with the given runtime input."""
+        invoke_input, config = self._build_invoke_input_and_config(payload)
+
+        # Invoke the precompiled agent
+        state = self._agent.invoke(invoke_input, config=config if config else None)
+        final_output = self._extract_final_output(state)
+        safe_state = self._safe_jsonable(state)
+        return AgentRunResponse(final_output=final_output, state=safe_state)
+
+    def run_stream(self, payload: AgentRunRequest) -> list[AGUIEvent]:
+        """Collect AG-UI events for callers that need a non-streaming list."""
+        return list(self.iter_ag_ui_events(payload))
+
+    def iter_ag_ui_events(self, payload: AgentRunRequest) -> Iterator[AGUIEvent]:
+        """
+        Execute one run and yield AG-UI compatible events.
+
+        When the compiled agent supports `.stream()`, token/tool/state events are
+        emitted incrementally. Otherwise this falls back to a single-shot run.
+        """
+        run_id = payload.run_id or f"run_{uuid4().hex}"
+        thread_id = payload.thread_id
+
+        yield AGUIEvent(type="RUN_STARTED", runId=run_id, threadId=thread_id)
+
+        if not hasattr(self._agent, "stream"):
+            yield from self._emit_non_streaming_events(payload, run_id=run_id, thread_id=thread_id)
+            return
+
+        try:
+            invoke_input, config = self._build_invoke_input_and_config(payload)
+            current_message_id: str | None = None
+            assistant_message_started = False
+            open_tool_call_ids: set[str] = set()
+            final_state: dict[str, Any] | None = None
+
+            stream = self._agent.stream(
+                invoke_input,
+                config=config if config else None,
+                stream_mode=["messages", "updates", "custom", "values"],
+                subgraphs=True,
+            )
+            for stream_item in stream:
+                namespace, mode, chunk = self._unpack_stream_item(stream_item)
+                if mode == "messages":
+                    token, metadata = chunk
+                    if not assistant_message_started:
+                        current_message_id = self._resolve_message_id(metadata) or f"msg_{uuid4().hex}"
+                        yield AGUIEvent(
+                            type="TEXT_MESSAGE_START",
+                            runId=run_id,
+                            threadId=thread_id,
+                            messageId=current_message_id,
+                        )
+                        assistant_message_started = True
+
+                    text_delta = self._extract_text_delta(token)
+                    if text_delta:
+                        yield AGUIEvent(
+                            type="TEXT_MESSAGE_CONTENT",
+                            runId=run_id,
+                            threadId=thread_id,
+                            messageId=current_message_id,
+                            delta=text_delta,
+                        )
+
+                    for tool_event in self._extract_tool_call_events(
+                        token=token,
+                        run_id=run_id,
+                        thread_id=thread_id,
+                        open_tool_call_ids=open_tool_call_ids,
+                    ):
+                        yield tool_event
+                    continue
+
+                if mode == "updates":
+                    delta = chunk if isinstance(chunk, dict) else {"value": chunk}
+                    yield AGUIEvent(
+                        type="STATE_DELTA",
+                        runId=run_id,
+                        threadId=thread_id,
+                        state={"namespace": namespace, "delta": delta},
+                    )
+                    continue
+
+                if mode == "values":
+                    if isinstance(chunk, dict):
+                        final_state = chunk
+                    continue
+
+                if mode == "custom":
+                    custom_value = chunk if isinstance(chunk, dict) else {"value": chunk}
+                    event_name = "a2ui" if self._looks_like_a2ui_payload(custom_value) else "custom"
+                    yield AGUIEvent(
+                        type="CUSTOM",
+                        runId=run_id,
+                        threadId=thread_id,
+                        name=event_name,
+                        value={"namespace": namespace, "payload": custom_value},
+                    )
+                    continue
+
+            if current_message_id:
+                yield AGUIEvent(
+                    type="TEXT_MESSAGE_END",
+                    runId=run_id,
+                    threadId=thread_id,
+                    messageId=current_message_id,
+                )
+
+            for tool_call_id in list(open_tool_call_ids):
+                yield AGUIEvent(
+                    type="TOOL_CALL_END",
+                    runId=run_id,
+                    threadId=thread_id,
+                    toolCallId=tool_call_id,
+                )
+
+            if final_state is not None:
+                yield AGUIEvent(
+                    type="STATE_SNAPSHOT",
+                    runId=run_id,
+                    threadId=thread_id,
+                    state=final_state,
+                )
+                if "a2ui" in final_state:
+                    yield AGUIEvent(
+                        type="CUSTOM",
+                        runId=run_id,
+                        threadId=thread_id,
+                        name="a2ui",
+                        value=final_state["a2ui"],
+                    )
+
+            yield AGUIEvent(type="RUN_FINISHED", runId=run_id, threadId=thread_id)
+        except Exception as exc:  # noqa: BLE001
+            yield AGUIEvent(
+                type="RUN_ERROR",
+                runId=run_id,
+                threadId=thread_id,
+                error=str(exc),
+            )
+
+    def close(self) -> None:
+        for callback in reversed(self._cleanup_callbacks):
+            try:
+                callback()
+            except Exception:  # noqa: BLE001
+                logger.exception("failed to cleanup runner runtime resource")
+
+    def _initialize_langfuse(self) -> bool:
+        if not os.getenv("LANGFUSE_BASE_URL"):
+            return False
+
+        get_client()
+        return True
+
+    def _build_langfuse_handler(self) -> BaseCallbackHandler:
+        return CallbackHandler()
+
+    def _build_invoke_input_and_config(self, payload: AgentRunRequest) -> tuple[dict, dict]:
         if self._cluster_mode and not (payload.thread_id and payload.thread_id.strip()):
             raise ValueError("`thread_id` is required in cluster mode for persistent checkpointing")
 
@@ -425,29 +587,159 @@ class DeepAgentRunner:
             )
         )
         config["callbacks"] = callbacks
+        return invoke_input, config
 
-        # Invoke the precompiled agent
-        state = self._agent.invoke(invoke_input, config=config if config else None)
-        final_output = self._extract_final_output(state)
-        safe_state = self._safe_jsonable(state)
-        return AgentRunResponse(final_output=final_output, state=safe_state)
+    def _emit_non_streaming_events(
+        self,
+        payload: AgentRunRequest,
+        *,
+        run_id: str,
+        thread_id: str | None,
+    ) -> Iterator[AGUIEvent]:
+        try:
+            response = self.run(payload)
+            message_id = f"msg_{uuid4().hex}"
+            yield AGUIEvent(type="TEXT_MESSAGE_START", runId=run_id, threadId=thread_id, messageId=message_id)
+            if response.final_output:
+                yield AGUIEvent(
+                    type="TEXT_MESSAGE_CONTENT",
+                    runId=run_id,
+                    threadId=thread_id,
+                    messageId=message_id,
+                    delta=response.final_output,
+                )
+            yield AGUIEvent(type="TEXT_MESSAGE_END", runId=run_id, threadId=thread_id, messageId=message_id)
+            yield AGUIEvent(type="STATE_SNAPSHOT", runId=run_id, threadId=thread_id, state=response.state)
+            if "a2ui" in response.state:
+                yield AGUIEvent(
+                    type="CUSTOM",
+                    runId=run_id,
+                    threadId=thread_id,
+                    name="a2ui",
+                    value=response.state["a2ui"],
+                )
+            yield AGUIEvent(type="RUN_FINISHED", runId=run_id, threadId=thread_id)
+        except Exception as exc:  # noqa: BLE001
+            yield AGUIEvent(type="RUN_ERROR", runId=run_id, threadId=thread_id, error=str(exc))
 
-    def close(self) -> None:
-        for callback in reversed(self._cleanup_callbacks):
-            try:
-                callback()
-            except Exception:  # noqa: BLE001
-                logger.exception("failed to cleanup runner runtime resource")
+    def _unpack_stream_item(self, stream_item: object) -> tuple[str, str, Any]:
+        namespace = ""
+        payload = stream_item
+        if isinstance(stream_item, tuple) and len(stream_item) == 2:
+            namespace = str(stream_item[0])
+            payload = stream_item[1]
 
-    def _initialize_langfuse(self) -> bool:
-        if not os.getenv("LANGFUSE_BASE_URL"):
-            return False
+        if isinstance(payload, tuple) and len(payload) == 2 and isinstance(payload[0], str):
+            return namespace, payload[0], payload[1]
+        return namespace, "custom", payload
 
-        get_client()
-        return True
+    def _resolve_message_id(self, metadata: object) -> str | None:
+        if not isinstance(metadata, dict):
+            return None
+        for key in ("message_id", "messageId", "id"):
+            value = metadata.get(key)
+            if isinstance(value, str) and value:
+                return value
+        return None
 
-    def _build_langfuse_handler(self) -> BaseCallbackHandler:
-        return CallbackHandler()
+    def _extract_text_delta(self, token: object) -> str | None:
+        content = getattr(token, "content", None)
+        if isinstance(content, str) and content:
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, dict):
+                    text = item.get("text")
+                    if isinstance(text, str):
+                        parts.append(text)
+            joined = "".join(parts)
+            return joined if joined else None
+        return None
+
+    def _extract_tool_call_events(
+        self,
+        *,
+        token: object,
+        run_id: str,
+        thread_id: str | None,
+        open_tool_call_ids: set[str],
+    ) -> list[AGUIEvent]:
+        events: list[AGUIEvent] = []
+        tool_chunks = getattr(token, "tool_call_chunks", None)
+        if isinstance(tool_chunks, list):
+            for chunk in tool_chunks:
+                if isinstance(chunk, dict):
+                    tool_call_id = chunk.get("id")
+                    name = chunk.get("name")
+                    args = chunk.get("args")
+                else:
+                    tool_call_id = getattr(chunk, "id", None)
+                    name = getattr(chunk, "name", None)
+                    args = getattr(chunk, "args", None)
+                if not isinstance(tool_call_id, str) or not tool_call_id:
+                    continue
+                if tool_call_id not in open_tool_call_ids:
+                    events.append(
+                        AGUIEvent(
+                            type="TOOL_CALL_START",
+                            runId=run_id,
+                            threadId=thread_id,
+                            toolCallId=tool_call_id,
+                            toolCallName=name if isinstance(name, str) else None,
+                        )
+                    )
+                    open_tool_call_ids.add(tool_call_id)
+                if isinstance(args, str) and args:
+                    events.append(
+                        AGUIEvent(
+                            type="TOOL_CALL_ARGS",
+                            runId=run_id,
+                            threadId=thread_id,
+                            toolCallId=tool_call_id,
+                            args=args,
+                        )
+                    )
+
+        token_type = getattr(token, "type", None)
+        if token_type == "tool":
+            tool_call_id = getattr(token, "tool_call_id", None)
+            if isinstance(tool_call_id, str) and tool_call_id:
+                events.append(
+                    AGUIEvent(
+                        type="TOOL_CALL_RESULT",
+                        runId=run_id,
+                        threadId=thread_id,
+                        toolCallId=tool_call_id,
+                        result=getattr(token, "content", None),
+                    )
+                )
+                if tool_call_id in open_tool_call_ids:
+                    events.append(
+                        AGUIEvent(
+                            type="TOOL_CALL_END",
+                            runId=run_id,
+                            threadId=thread_id,
+                            toolCallId=tool_call_id,
+                        )
+                    )
+                    open_tool_call_ids.remove(tool_call_id)
+        return events
+
+    def _looks_like_a2ui_payload(self, value: dict[str, Any]) -> bool:
+        marker = value.get("kind")
+        if marker == "a2ui":
+            return True
+        mime = value.get("mimeType")
+        if isinstance(mime, str) and "a2ui" in mime.lower():
+            return True
+        if "surface" in value and isinstance(value.get("surface"), dict):
+            return True
+        if "component" in value and isinstance(value.get("component"), dict):
+            return True
+        return False
 
     def _extract_final_output(self, state: object) -> str | None:
         if not isinstance(state, dict):

@@ -1,6 +1,7 @@
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from types import MethodType
 from unittest.mock import patch
 
@@ -19,6 +20,49 @@ class _RecordingCompiledAgent:
         self.last_invoke_input = invoke_input
         self.last_config = config
         return self.state
+
+
+class _StreamingCompiledAgent:
+    def invoke(self, invoke_input, config=None):  # noqa: ANN001, ANN201
+        return {"messages": [{"role": "assistant", "content": "fallback"}]}
+
+    def stream(self, invoke_input, config=None, stream_mode=None, subgraphs=False):  # noqa: ANN001, ANN201
+        yield (
+            (),
+            (
+                "messages",
+                (
+                    SimpleNamespace(content="Hel", tool_call_chunks=[]),
+                    {"message_id": "msg_1"},
+                ),
+            ),
+        )
+        yield (
+            (),
+            (
+                "messages",
+                (
+                    SimpleNamespace(
+                        content="lo",
+                        tool_call_chunks=[{"id": "call_1", "name": "search", "args": '{"q":"weather"}'}],
+                    ),
+                    {"message_id": "msg_1"},
+                ),
+            ),
+        )
+        yield (
+            (),
+            (
+                "messages",
+                (
+                    SimpleNamespace(type="tool", tool_call_id="call_1", content="result"),
+                    {"message_id": "msg_1"},
+                ),
+            ),
+        )
+        yield ((), ("updates", {"model": {"step": 1}}))
+        yield ((), ("custom", {"kind": "a2ui", "surface": {"component": "card"}}))
+        yield ((), ("values", {"messages": [{"role": "assistant", "content": "Hello"}], "a2ui": {"surface": {}}}))
 
 
 class TestDeepAgentRunnerUnit(unittest.TestCase):
@@ -163,6 +207,51 @@ class TestDeepAgentRunnerUnit(unittest.TestCase):
             self.assertEqual(runner._coerce_text(123), "123")
             self.assertIsNone(runner._coerce_text(None))
             self.assertEqual(runner._safe_jsonable(["x"]), {"result": ["x"]})
+            runner.close()
+
+    def test_run_stream_emits_ag_ui_lifecycle_events(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            compiled = _RecordingCompiledAgent(state={"messages": [{"role": "assistant", "content": "ok"}]})
+            with patch("easyagent.agent.agent.create_deep_agent", return_value=compiled):
+                runner = DeepAgentRunner(self._local_settings(tmpdir), model=object())
+
+            events = runner.run_stream(AgentRunRequest(input="hello", thread_id="thread_001"))
+            self.assertEqual(events[0].type, "RUN_STARTED")
+            self.assertEqual(events[-1].type, "RUN_FINISHED")
+            self.assertTrue(any(event.type == "TEXT_MESSAGE_CONTENT" for event in events))
+            self.assertTrue(any(event.type == "STATE_SNAPSHOT" for event in events))
+            runner.close()
+
+    def test_run_stream_emits_run_error_when_run_fails(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            compiled = _RecordingCompiledAgent(state={"messages": [{"role": "assistant", "content": "ok"}]})
+            with patch("easyagent.agent.agent.create_deep_agent", return_value=compiled):
+                runner = DeepAgentRunner(self._cluster_settings(tmpdir), model=object())
+
+            events = runner.run_stream(AgentRunRequest(input="hello"))
+            self.assertEqual(events[0].type, "RUN_STARTED")
+            self.assertEqual(events[-1].type, "RUN_ERROR")
+            self.assertIn("thread_id", events[-1].error or "")
+            runner.close()
+
+    def test_iter_ag_ui_events_streams_messages_tools_and_custom(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            with patch("easyagent.agent.agent.create_deep_agent", return_value=_StreamingCompiledAgent()):
+                runner = DeepAgentRunner(self._local_settings(tmpdir), model=object())
+
+            events = list(runner.iter_ag_ui_events(AgentRunRequest(input="hello", thread_id="thread_001")))
+            types = [event.type for event in events]
+            self.assertEqual(types[0], "RUN_STARTED")
+            self.assertIn("TEXT_MESSAGE_START", types)
+            self.assertGreaterEqual(types.count("TEXT_MESSAGE_CONTENT"), 2)
+            self.assertIn("TOOL_CALL_START", types)
+            self.assertIn("TOOL_CALL_ARGS", types)
+            self.assertIn("TOOL_CALL_RESULT", types)
+            self.assertIn("STATE_DELTA", types)
+            self.assertIn("STATE_SNAPSHOT", types)
+            self.assertEqual(types[-1], "RUN_FINISHED")
+            custom_names = [event.name for event in events if event.type == "CUSTOM"]
+            self.assertIn("a2ui", custom_names)
             runner.close()
 
 
