@@ -349,6 +349,10 @@ class DeepAgentRunner:
         runtime_kwargs = runtime_factory.create_runtime_kwargs()
         kwargs.update(runtime_kwargs)
         self._cleanup_callbacks.extend(runtime_factory.get_cleanup_callbacks())
+        if sandbox is not None and callable(sandbox):
+            close_cb = getattr(sandbox, "close", None)
+            if callable(close_cb):
+                self._cleanup_callbacks.append(close_cb)
 
         if system_prompt:
             kwargs["system_prompt"] = system_prompt

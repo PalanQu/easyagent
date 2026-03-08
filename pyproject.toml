@@ -17,6 +17,7 @@ dependencies = [
     "sse-starlette>=3.0.0",
     "sqlmodel>=0.0.37",
     "uvicorn>=0.41.0",
+    "opensandbox>=0.1.5",
 ]
 
 [build-system]

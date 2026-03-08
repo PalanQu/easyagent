@@ -12,6 +12,7 @@ from easyagent.adapters.fastapi.middleware import build_logging_context_middlewa
 from easyagent.agent.agent import DeepAgentRunner
 from easyagent.agent.discovery import discover_subagents_from_gateway
 from easyagent.adapters.a2a import mount_a2a_routes
+from easyagent.agent.opensandbox import OpenSandboxBackend, OpenSandboxThreadBackendFactory
 from easyagent.auth import AuthProvider, AuthUser, NoopAuthProvider
 from easyagent.repos.factory import build_session_repo, build_user_repo
 from easyagent.services.session_service import SessionService
@@ -42,6 +43,8 @@ __all__ = [
     "BaseTool",
     "BaseCache",
     "BackendProtocol",
+    "OpenSandboxBackend",
+    "OpenSandboxThreadBackendFactory",
 ]
 
 logger = logging.getLogger(__name__)
