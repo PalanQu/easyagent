@@ -195,8 +195,9 @@ app = sdk.create_app()
 This keeps the existing `/agent/run` and A2A endpoints, and adds a CopilotKit-compatible LangGraph endpoint that uses the same compiled graph under the hood.
 
 Note:
-- The server-side integration here uses `ag-ui-langgraph`.
-- The `copilotkit` Python package is not included because its current published releases are not compatible with this project's LangGraph 1.x, LangChain OpenAI 1.x, and FastAPI 0.116+ stack.
+- The server-side integration follows the official split used by the deepagents/CopilotKit docs.
+- `copilotkit` provides `LangGraphAGUIAgent` and middleware such as `CopilotKitMiddleware`.
+- `ag-ui-langgraph` provides `add_langgraph_fastapi_endpoint` for mounting the FastAPI endpoint.
 
 ### Cluster Runtime Persistence
 

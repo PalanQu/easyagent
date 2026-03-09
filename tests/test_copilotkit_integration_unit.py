@@ -1,4 +1,3 @@
-import sys
 import types
 import unittest
 import builtins
@@ -28,12 +27,12 @@ class TestCopilotKitIntegrationUnit(unittest.TestCase):
         real_import = builtins.__import__
 
         def _raising_import(name, globals=None, locals=None, fromlist=(), level=0):  # noqa: ANN001, ANN201
-            if name == "ag_ui_langgraph":
-                raise ImportError("missing ag_ui_langgraph")
+            if name in {"copilotkit", "ag_ui_langgraph"}:
+                raise ImportError(f"missing {name}")
             return real_import(name, globals, locals, fromlist, level)
 
         with patch("builtins.__import__", side_effect=_raising_import):
-            with self.assertRaisesRegex(RuntimeError, "AG-UI integration requires"):
+            with self.assertRaisesRegex(RuntimeError, "requires both `copilotkit` and `ag-ui-langgraph`"):
                 mount_copilotkit_routes(
                     app=app,
                     graph=object(),
@@ -43,22 +42,33 @@ class TestCopilotKitIntegrationUnit(unittest.TestCase):
                 )
 
     def test_mount_copilotkit_routes_registers_endpoint(self) -> None:
+        fake_copilotkit = types.ModuleType("copilotkit")
         fake_ag_ui_langgraph = types.ModuleType("ag_ui_langgraph")
         calls: dict[str, object] = {}
+        real_import = builtins.__import__
 
         def _add_langgraph_fastapi_endpoint(app, agent, path):  # noqa: ANN001, ANN201
             calls["app"] = app
             calls["agent"] = agent
             calls["path"] = path
 
+        class _FakeLangGraphAGUIAgent:
+            def __init__(self, *, name, graph, description=None):  # noqa: ANN001
+                self.name = name
+                self.graph = graph
+                self.description = description
+
+        fake_copilotkit.LangGraphAGUIAgent = _FakeLangGraphAGUIAgent
         fake_ag_ui_langgraph.add_langgraph_fastapi_endpoint = _add_langgraph_fastapi_endpoint
 
-        with patch.dict(
-            sys.modules,
-            {
-                "ag_ui_langgraph": fake_ag_ui_langgraph,
-            },
-        ):
+        def _fake_import(name, globals=None, locals=None, fromlist=(), level=0):  # noqa: ANN001, ANN201
+            if name == "copilotkit":
+                return fake_copilotkit
+            if name == "ag_ui_langgraph":
+                return fake_ag_ui_langgraph
+            return real_import(name, globals, locals, fromlist, level)
+
+        with patch("builtins.__import__", side_effect=_fake_import):
             app = FastAPI()
             graph = object()
             mount_copilotkit_routes(
@@ -71,7 +81,11 @@ class TestCopilotKitIntegrationUnit(unittest.TestCase):
 
         self.assertIs(calls["app"], app)
         self.assertEqual(calls["path"], "/copilotkit")
-        self.assertIs(calls["agent"], graph)
+        agent = calls["agent"]
+        self.assertIsInstance(agent, _FakeLangGraphAGUIAgent)
+        self.assertEqual(agent.name, "easyagent")
+        self.assertEqual(agent.description, "desc")
+        self.assertIs(agent.graph, graph)
 
     def test_mount_fastapi_mounts_copilotkit_when_enabled(self) -> None:
         with TemporaryDirectory() as tmpdir:

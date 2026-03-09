@@ -12,13 +12,15 @@ def mount_copilotkit_routes(
 ) -> None:
     try:
         from ag_ui_langgraph import add_langgraph_fastapi_endpoint
+        from copilotkit import LangGraphAGUIAgent
     except ImportError as exc:
         raise RuntimeError(
-            "CopilotKit-compatible AG-UI integration requires `ag-ui-langgraph` to be installed."
+            "CopilotKit AG-UI integration requires both `copilotkit` and `ag-ui-langgraph` to be installed."
         ) from exc
 
-    # `ag-ui-langgraph` can expose a plain compiled LangGraph directly.
-    # `name` and `description` are kept in our SDK API for future compatibility,
-    # even though the current transport adapter does not consume them.
-    _ = (name, description)
-    add_langgraph_fastapi_endpoint(app, graph, path)
+    agent = LangGraphAGUIAgent(
+        name=name,
+        description=description,
+        graph=graph,
+    )
+    add_langgraph_fastapi_endpoint(app, agent, path)
