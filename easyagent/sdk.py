@@ -7,7 +7,7 @@ from fastapi import APIRouter, FastAPI, Request
 from sqlmodel import Session
 
 from easyagent.adapters.a2a.server import A2AServerConfig
-from easyagent.adapters.fastapi import build_easyagent_router
+from easyagent.adapters.fastapi import build_easyagent_router, mount_copilotkit_routes
 from easyagent.adapters.fastapi.middleware import build_logging_context_middleware
 from easyagent.agent.agent import DeepAgentRunner
 from easyagent.agent.discovery import discover_subagents_from_gateway
@@ -111,6 +111,10 @@ class EasyagentSDK:
         a2a_gateway_timeout_seconds: float = 10.0,
         a2a_gateway_subagent_name_prefix: str = "remote_",
         a2a_gateway_fail_fast: bool = False,
+        copilotkit_enabled: bool = True,
+        copilotkit_path: str = "/copilotkit",
+        copilotkit_agent_name: str = "easyagent",
+        copilotkit_agent_description: str = "EasyAgent LangGraph endpoint for CopilotKit AG-UI.",
         title: str = "Easyagent API",
         version: str = "0.1.0",
     ) -> None:
@@ -142,6 +146,10 @@ class EasyagentSDK:
             a2a_gateway_timeout_seconds: Timeout used when calling gateway and remote card endpoints.
             a2a_gateway_subagent_name_prefix: Prefix added to discovered subagent names.
             a2a_gateway_fail_fast: Raise initialization error when gateway discovery fails.
+            copilotkit_enabled: Whether to expose a CopilotKit LangGraph AG-UI endpoint.
+            copilotkit_path: Route prefix used for the CopilotKit endpoint.
+            copilotkit_agent_name: Agent name shown to CopilotKit clients.
+            copilotkit_agent_description: Agent description shown to CopilotKit clients.
             title: FastAPI application title.
             version: FastAPI application version.
         """
@@ -157,6 +165,10 @@ class EasyagentSDK:
         self.version = version
         self.auth_provider = auth_provider or NoopAuthProvider()
         self.a2a_enabled = a2a_enabled
+        self.copilotkit_enabled = copilotkit_enabled
+        self.copilotkit_path = copilotkit_path
+        self.copilotkit_agent_name = copilotkit_agent_name
+        self.copilotkit_agent_description = copilotkit_agent_description
         self.a2a_config = A2AServerConfig(
             public_base_url=a2a_public_base_url,
             rpc_path=a2a_rpc_path,
@@ -232,6 +244,14 @@ class EasyagentSDK:
         app.include_router(self.router(), prefix=prefix)
         if self.a2a_enabled:
             mount_a2a_routes(app=app, runner=self.agent_runner, config=self.a2a_config)
+        if self.copilotkit_enabled:
+            mount_copilotkit_routes(
+                app=app,
+                graph=self.agent_runner._agent,
+                path=self.copilotkit_path,
+                name=self.copilotkit_agent_name,
+                description=self.copilotkit_agent_description,
+            )
 
     def create_app(self, prefix: str = "") -> FastAPI:
         @asynccontextmanager
