@@ -251,6 +251,7 @@ class EasyagentSDK:
                 path=self.copilotkit_path,
                 name=self.copilotkit_agent_name,
                 description=self.copilotkit_agent_description,
+                authenticate=self.get_current_user,
             )
 
     def create_app(self, prefix: str = "") -> FastAPI:

@@ -1,5 +1,10 @@
-from fastapi import FastAPI
+from collections.abc import Awaitable, Callable
+
+from fastapi import FastAPI, Request
+from fastapi.responses import StreamingResponse
 from langgraph.graph.state import CompiledStateGraph
+
+from easyagent.models.schema.auth import AuthUser
 
 
 def mount_copilotkit_routes(
@@ -9,18 +14,61 @@ def mount_copilotkit_routes(
     path: str,
     name: str,
     description: str,
+    authenticate: Callable[[Request], Awaitable[AuthUser]],
 ) -> None:
     try:
-        from ag_ui_langgraph import add_langgraph_fastapi_endpoint
+        from ag_ui.core.types import RunAgentInput
+        from ag_ui.encoder import EventEncoder
         from copilotkit import LangGraphAGUIAgent
     except ImportError as exc:
         raise RuntimeError(
             "CopilotKit AG-UI integration requires both `copilotkit` and `ag-ui-langgraph` to be installed."
         ) from exc
 
-    agent = LangGraphAGUIAgent(
-        name=name,
-        description=description,
-        graph=graph,
-    )
-    add_langgraph_fastapi_endpoint(app, agent, path)
+    async def _authenticate_request(request: Request) -> AuthUser:
+        cached_user = getattr(request.state, "auth_user", None)
+        if isinstance(cached_user, AuthUser):
+            return cached_user
+        return await authenticate(request)
+
+    @app.post(path)
+    async def copilotkit_endpoint(input_data: RunAgentInput, request: Request):
+        current_user = await _authenticate_request(request)
+        accept_header = request.headers.get("accept")
+        encoder = EventEncoder(accept=accept_header)
+
+        config: dict[str, object] = {
+            "configurable": {
+                "user_id": current_user.user_id,
+            }
+        }
+        if input_data.thread_id:
+            config["metadata"] = {
+                "langfuse_user_id": current_user.user_id,
+                "langfuse_session_id": input_data.thread_id,
+            }
+
+        agent = LangGraphAGUIAgent(
+            name=name,
+            description=description,
+            graph=graph,
+            config=config,
+        )
+
+        async def event_generator():
+            async for event in agent.run(input_data):
+                yield encoder.encode(event)
+
+        return StreamingResponse(
+            event_generator(),
+            media_type=encoder.get_content_type(),
+        )
+
+    @app.get(f"{path}/health")
+    def copilotkit_health() -> dict[str, object]:
+        return {
+            "status": "ok",
+            "agent": {
+                "name": name,
+            },
+        }
