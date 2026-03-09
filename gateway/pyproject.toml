@@ -2,7 +2,7 @@
 name = "easyagent-gateway"
 version = "0.1.0"
 description = "Lightweight gateway service for EasyAgent agent discovery."
-requires-python = ">=3.13"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi>=0.116.1",
     "pydantic>=2.11.7",

@@ -2,7 +2,7 @@
 name = "easyagent-sandbox-example"
 version = "0.1.0"
 description = "Sandbox example environment for easyagent with opensandbox-server"
-requires-python = ">=3.13"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "easyagent",
     "opensandbox-server",

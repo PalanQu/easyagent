@@ -196,7 +196,7 @@ This keeps the existing `/agent/run` and A2A endpoints, and adds a CopilotKit-co
 
 Note:
 - The server-side integration here uses `ag-ui-langgraph`.
-- The `copilotkit` Python package is not included because its current stable releases are not compatible with this project's Python 3.13+ and LangGraph 1.x stack.
+- The `copilotkit` Python package is not included because its current published releases are not compatible with this project's LangGraph 1.x, LangChain OpenAI 1.x, and FastAPI 0.116+ stack.
 
 ### Cluster Runtime Persistence
 
