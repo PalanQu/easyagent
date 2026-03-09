@@ -24,6 +24,7 @@ It gives you a clean way to:
 - Pluggable authentication (`Noop`, header-based, or custom callable provider).
 - Local runtime sandbox for skills/memory/tmp file routes.
 - Optional Langfuse tracing when `LANGFUSE_BASE_URL` is configured.
+- CopilotKit AG-UI endpoint backed by the compiled LangGraph agent.
 
 ## Architecture
 
@@ -110,6 +111,7 @@ Client
 - `POST /users`, `GET /users/by-external-id`
 - `POST /sessions`, `GET /sessions/{session_id}`, `GET /users/{user_id}/sessions`
 - A2A (enabled by default): `/.well-known/agent-card.json` and `/a2a`
+- CopilotKit AG-UI endpoint: configurable path such as `/copilotkit`
 
 ## Gateway
 
@@ -168,6 +170,34 @@ curl -X POST "http://127.0.0.1:8000/agent/run" \
   -H "Content-Type: application/json" \
   -d '{"input":"hi","thread_id":"thread_001"}'
 ```
+
+### CopilotKit AG-UI
+
+EasyAgent mounts the compiled LangGraph agent as a CopilotKit-compatible AG-UI endpoint on the same FastAPI app by default.
+
+```python
+from easyagent.sdk import EasyagentSDK
+from easyagent.utils.settings import Settings
+
+settings = Settings.from_env()
+
+sdk = EasyagentSDK(
+    settings=settings,
+    system_prompt="You are a helpful assistant.",
+    copilotkit_enabled=True,
+    copilotkit_path="/copilotkit",
+    copilotkit_agent_name="easyagent",
+    copilotkit_agent_description="EasyAgent LangGraph endpoint for CopilotKit AG-UI.",
+)
+app = sdk.create_app()
+```
+
+This keeps the existing `/agent/run` and A2A endpoints, and adds a CopilotKit-compatible LangGraph endpoint that uses the same compiled graph under the hood.
+
+Note:
+- The server-side integration follows the official split used by the deepagents/CopilotKit docs.
+- `copilotkit` provides `LangGraphAGUIAgent` and middleware such as `CopilotKitMiddleware`.
+- `ag-ui-langgraph` provides `add_langgraph_fastapi_endpoint` for mounting the FastAPI endpoint.
 
 ### Cluster Runtime Persistence
 
