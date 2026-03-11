@@ -30,10 +30,6 @@ class Settings(BaseModel):
     base_path: Path = Field(default_factory=lambda: Path.home() / ".easyagent")
     local_mode: bool = True
 
-    skills_path: Path | None = None
-    memories_path: Path | None = None
-    tmp_path: Path | None = None
-
     db_backend: Literal["sqlite", "postgres"] = "sqlite"
     db_url: str | None = None
     db_echo: bool = False
@@ -44,13 +40,6 @@ class Settings(BaseModel):
     @model_validator(mode="after")
     def _fill_defaults(self) -> "Settings":
         self.base_path = self.base_path.expanduser().resolve()
-        self.skills_path = self.skills_path or self.base_path / "skills"
-        if self.memories_path is None:
-            if self.local_mode:
-                self.memories_path = Path("/tmp/.easyagent/memory")
-            else:
-                self.memories_path = self.base_path / "memory"
-        self.tmp_path = self.tmp_path or self.base_path / "tmp"
 
         if self.db_url:
             return self
@@ -64,6 +53,18 @@ class Settings(BaseModel):
         if self.db_url is None:
             raise ValueError("db_url is not initialized")
         return self.db_url
+
+    @property
+    def skills_path(self) -> Path:
+        return self.base_path / "skills"
+
+    @property
+    def memories_path(self) -> Path:
+        return self.base_path / "memory"
+
+    @property
+    def tmp_path(self) -> Path:
+        return self.base_path / "tmp"
 
     @classmethod
     def from_env(
@@ -95,9 +96,6 @@ class Settings(BaseModel):
             model_name=model_name,
             base_path=Path(env("BASE_PATH")).expanduser() if env("BASE_PATH") else Path.home() / ".easyagent",
             local_mode=_parse_bool(env("LOCAL_MODE"), True),
-            skills_path=Path(env("SKILLS_PATH")).expanduser() if env("SKILLS_PATH") else None,
-            memories_path=Path(env("MEMORIES_PATH")).expanduser() if env("MEMORIES_PATH") else None,
-            tmp_path=Path(env("TMP_PATH")).expanduser() if env("TMP_PATH") else None,
             db_backend=env("DB_BACKEND") or "sqlite",
             db_url=env("DB_URL"),
             db_echo=_parse_bool(env("DB_ECHO"), False),

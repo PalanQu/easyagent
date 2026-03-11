@@ -1,3 +1,4 @@
+import logging
 from typing import Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -47,6 +48,7 @@ def build_easyagent_router(sdk: EasyagentSDKRouterProtocol) -> APIRouter:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
+            logging.getLogger(__name__).error(f"agent run failed: {exc}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"agent run failed: {exc}") from exc
 
     @router.post("/users", response_model=UserOut, status_code=201)
@@ -58,16 +60,23 @@ def build_easyagent_router(sdk: EasyagentSDKRouterProtocol) -> APIRouter:
             return sdk._build_user_service(db_session).register_user(payload)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            logging.getLogger(__name__).error(f"user creation failed: {exc}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"user creation failed: {exc}") from exc
 
     @router.get("/users/by-external-id", response_model=UserOut)
     def get_user_by_external_id(
         external_user_id: str = Query(..., description="External user ID"),
         db_session: Session = Depends(sdk._db_session),
     ) -> UserOut:
-        user = sdk._build_user_service(db_session).get_user_by_external_user_id(external_user_id)
-        if user is None:
-            raise HTTPException(status_code=404, detail=f"user not found: {external_user_id}")
-        return user
+        try:
+            user = sdk._build_user_service(db_session).get_user_by_external_user_id(external_user_id)
+            if user is None:
+                raise HTTPException(status_code=404, detail=f"user not found: {external_user_id}")
+            return user
+        except Exception as exc:
+            logging.getLogger(__name__).error(f"get user by external ID failed: {exc}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"get user by external ID failed: {exc}") from exc
 
     @router.post("/sessions", response_model=SessionOut, status_code=201)
     def create_session(

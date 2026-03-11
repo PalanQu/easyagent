@@ -115,7 +115,6 @@ Use this skill when user asks weather-related questions.
                 model_base_url="https://example.com/v1",
                 model_name="real-model-not-used",
                 base_path=base_path,
-                skills_path=skills_path,
                 local_mode=True,
             )
 

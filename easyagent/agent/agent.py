@@ -180,12 +180,21 @@ class ClusterModeRuntimeFactory:
             self._pool = None
 
     def _create_backend_factory(self) -> Callable[[Any], BackendProtocol]:
+        tmp_route = str(self.settings.tmp_path)
+        if not tmp_route.endswith("/"):
+            tmp_route += "/"
+
         def _factory(runtime: Any) -> BackendProtocol:
             default_backend = self._resolve_default_backend(runtime)
+            tmp_backend = FilesystemBackend(
+                root_dir=self.settings.tmp_path,
+                virtual_mode=True,
+            )
             return CompositeBackend(
                 default=default_backend,
                 routes={
                     "/memory/": StoreBackend(runtime=runtime, namespace=self._memory_namespace_factory),
+                    tmp_route: tmp_backend,
                 },
             )
 
@@ -274,13 +283,22 @@ class LocalModeRuntimeFactory:
             Path(path).mkdir(parents=True, exist_ok=True)
 
     def _create_backend_factory(self) -> Callable[[Any], BackendProtocol]:
+        tmp_route = str(self.settings.tmp_path)
+        if not tmp_route.endswith("/"):
+            tmp_route += "/"
+
         def _factory(runtime: Any) -> BackendProtocol:
             default_backend = self._resolve_default_backend(runtime)
             memory_backend = self._resolve_memory_backend(runtime)
+            tmp_backend = FilesystemBackend(
+                root_dir=self.settings.tmp_path,
+                virtual_mode=True,
+            )
             return CompositeBackend(
                 default=default_backend,
                 routes={
                     "/memory/": memory_backend,
+                    tmp_route: tmp_backend,
                 },
             )
 

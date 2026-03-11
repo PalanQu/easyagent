@@ -26,7 +26,7 @@ class TestSettingsFromEnvUnit(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "invalid bool value"):
                 Settings.from_env(env_file=None)
 
-    def test_from_env_local_mode_defaults_memories_path(self) -> None:
+    def test_from_env_local_mode_defaults_derived_path(self) -> None:
         with patch.dict(
             os.environ,
             {
@@ -40,7 +40,9 @@ class TestSettingsFromEnvUnit(unittest.TestCase):
             settings = Settings.from_env(env_file=None)
 
         self.assertTrue(settings.local_mode)
-        self.assertEqual(settings.memories_path, Path("/tmp/.easyagent/memory"))
+        self.assertEqual(settings.memories_path, settings.base_path / "memory")
+        self.assertEqual(settings.skills_path, settings.base_path / "skills")
+        self.assertEqual(settings.tmp_path, settings.base_path / "tmp")
 
     def test_from_env_postgres_requires_db_url(self) -> None:
         with patch.dict(
