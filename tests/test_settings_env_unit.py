@@ -10,7 +10,7 @@ class TestSettingsFromEnvUnit(unittest.TestCase):
     def test_from_env_raises_when_required_env_missing(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaisesRegex(ValueError, "missing required env vars"):
-                Settings.from_env(env_file=None)
+                Settings.from_env()
 
     def test_from_env_raises_on_invalid_bool(self) -> None:
         with patch.dict(
@@ -24,7 +24,7 @@ class TestSettingsFromEnvUnit(unittest.TestCase):
             clear=True,
         ):
             with self.assertRaisesRegex(ValueError, "invalid bool value"):
-                Settings.from_env(env_file=None)
+                Settings.from_env()
 
     def test_from_env_local_mode_defaults_derived_path(self) -> None:
         with patch.dict(
@@ -37,7 +37,7 @@ class TestSettingsFromEnvUnit(unittest.TestCase):
             },
             clear=True,
         ):
-            settings = Settings.from_env(env_file=None)
+            settings = Settings.from_env()
 
         self.assertTrue(settings.local_mode)
         self.assertEqual(settings.memories_path, settings.base_path / "memory")
@@ -56,7 +56,7 @@ class TestSettingsFromEnvUnit(unittest.TestCase):
             clear=True,
         ):
             with self.assertRaisesRegex(ValueError, "db_url is required"):
-                Settings.from_env(env_file=None)
+                Settings.from_env()
 
 
 if __name__ == "__main__":

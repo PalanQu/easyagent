@@ -2,7 +2,6 @@ import os
 from pathlib import Path
 from typing import Literal
 
-from dotenv import load_dotenv
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -71,11 +70,7 @@ class Settings(BaseModel):
         cls,
         *,
         env_prefix: str = "EASYAGENT_",
-        env_file: str | Path | None = ".env",
     ) -> "Settings":
-        if env_file is not None:
-            load_dotenv(env_file, override=False)
-
         def env(name: str) -> str | None:
             return os.getenv(f"{env_prefix}{name}")
 
