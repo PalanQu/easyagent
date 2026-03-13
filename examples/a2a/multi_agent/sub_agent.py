@@ -74,8 +74,8 @@ sdk = EasyagentSDK(
     ),
     tools=[add, subtract, multiply, divide],
     a2a_public_base_url=public_base_url,
-    a2a_agent_name="remote_math_agent",
-    a2a_agent_description="Math agent exposed by A2A for gateway discovery.",
+    agent_name="remote_math_agent",
+    agent_description="Math agent exposed by A2A for gateway discovery.",
 )
 app = sdk.create_app()
 

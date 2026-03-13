@@ -41,8 +41,8 @@ sdk = EasyagentSDK(
     middleware=[CopilotKitMiddleware()],
     copilotkit_enabled=True,
     copilotkit_path="/copilotkit",
-    copilotkit_agent_name="sample_agent",
-    copilotkit_agent_description=(
+    agent_name="sample_agent",
+    agent_description=(
         "An example agent to use as a starting point for your own agent."
     ),
 )

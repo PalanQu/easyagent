@@ -32,7 +32,7 @@ sdk = EasyagentSDK(
         "When arithmetic is involved, delegate to remote_math_agent via subagent tools. "
         "Return concise final answers in English."
     ),
-    a2a_gateway_url=gateway_url,
+    gateway_url=gateway_url,
 )
 app = sdk.create_app()
 

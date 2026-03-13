@@ -165,8 +165,8 @@ class TestCopilotKitIntegrationUnit(unittest.TestCase):
                     a2a_enabled=False,
                     copilotkit_enabled=True,
                     copilotkit_path="/agui",
-                    copilotkit_agent_name="sample_agent",
-                    copilotkit_agent_description="sample desc",
+                    agent_name="sample_agent",
+                    agent_description="sample desc",
                 )
 
             app = FastAPI()

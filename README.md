@@ -120,7 +120,7 @@ The `gateway/` service is a lightweight discovery registry for distributed agent
 Current capability:
 - Register remote agent endpoints via `POST /agents`.
 - List registered endpoints via `GET /agents`.
-- Enable runtime subagent discovery in EasyAgent (`a2a_gateway_url`), where discovered A2A agents are converted into callable subagents.
+- Enable runtime subagent discovery in EasyAgent (`gateway_url`), where discovered A2A agents are converted into callable subagents.
 - Run gateway service from repo root:
   - `uv run --project gateway uvicorn gateway.app:app --host 0.0.0.0 --port 8010`
 
@@ -186,8 +186,8 @@ sdk = EasyagentSDK(
     system_prompt="You are a helpful assistant.",
     copilotkit_enabled=True,
     copilotkit_path="/copilotkit",
-    copilotkit_agent_name="easyagent",
-    copilotkit_agent_description="EasyAgent LangGraph endpoint for CopilotKit AG-UI.",
+    agent_name="easyagent",
+    agent_description="EasyAgent LangGraph endpoint for CopilotKit AG-UI.",
 )
 app = sdk.create_app()
 ```

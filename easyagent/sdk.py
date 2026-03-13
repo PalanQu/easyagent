@@ -104,18 +104,12 @@ class EasyagentSDK:
         a2a_enabled: bool = True,
         a2a_public_base_url: str = "http://127.0.0.1:8000",
         a2a_rpc_path: str = "/a2a",
-        a2a_agent_name: str = "Easyagent",
-        a2a_agent_description: str = "Easyagent compatible A2A agent.",
-        a2a_gateway_url: str | None = None,
-        a2a_gateway_agents_path: str = "/agents",
-        a2a_gateway_timeout_seconds: float = 10.0,
-        a2a_gateway_subagent_name_prefix: str = "remote_",
-        a2a_gateway_fail_fast: bool = False,
+        agent_name: str = "easyagent",
+        agent_description: str = "EasyAgent",
+        gateway_url: str | None = None,
+        gateway_fail_fast: bool = False,
         copilotkit_enabled: bool = True,
         copilotkit_path: str = "/copilotkit",
-        copilotkit_agent_name: str = "easyagent",
-        copilotkit_agent_description: str = "EasyAgent LangGraph endpoint for CopilotKit AG-UI.",
-        title: str = "Easyagent API",
         version: str = "0.1.0",
     ) -> None:
         """
@@ -139,18 +133,12 @@ class EasyagentSDK:
             a2a_enabled: Whether to expose A2A protocol endpoints.
             a2a_public_base_url: Public base URL used to build AgentCard.url (e.g. "http://127.0.0.1:8000").
             a2a_rpc_path: JSON-RPC path for A2A endpoint, mounted on the same FastAPI app.
-            a2a_agent_name: Agent name shown in A2A AgentCard.
-            a2a_agent_description: Agent description shown in A2A AgentCard.
-            a2a_gateway_url: Gateway base URL used to discover remote A2A agents.
-            a2a_gateway_agents_path: Path on gateway used to list registered agent addresses.
-            a2a_gateway_timeout_seconds: Timeout used when calling gateway and remote card endpoints.
-            a2a_gateway_subagent_name_prefix: Prefix added to discovered subagent names.
-            a2a_gateway_fail_fast: Raise initialization error when gateway discovery fails.
+            agent_name: Agent name shown to both A2A and CopilotKit clients.
+            agent_description: Agent description shown to both A2A and CopilotKit clients.
+            gateway_url: Gateway base URL used to discover remote A2A agents.
+            gateway_fail_fast: Raise initialization error when gateway discovery fails.
             copilotkit_enabled: Whether to expose a CopilotKit LangGraph AG-UI endpoint.
             copilotkit_path: Route prefix used for the CopilotKit endpoint.
-            copilotkit_agent_name: Agent name shown to CopilotKit clients.
-            copilotkit_agent_description: Agent description shown to CopilotKit clients.
-            title: FastAPI application title.
             version: FastAPI application version.
         """
         setup_logging()
@@ -161,40 +149,36 @@ class EasyagentSDK:
             "EasyagentSDK initialized"
         )
 
-        self.title = title
         self.version = version
         self.auth_provider = auth_provider or NoopAuthProvider()
         self.a2a_enabled = a2a_enabled
         self.copilotkit_enabled = copilotkit_enabled
         self.copilotkit_path = copilotkit_path
-        self.copilotkit_agent_name = copilotkit_agent_name
-        self.copilotkit_agent_description = copilotkit_agent_description
+        self.agent_name = agent_name
+        self.agent_description = agent_description
         self.a2a_config = A2AServerConfig(
             public_base_url=a2a_public_base_url,
             rpc_path=a2a_rpc_path,
-            agent_name=a2a_agent_name,
-            agent_description=a2a_agent_description,
+            agent_name=agent_name,
+            agent_description=agent_description,
             version=version,
         )
 
         resolved_subagents = list(subagents or [])
-        if a2a_gateway_url:
+        if gateway_url:
             try:
                 discovered = discover_subagents_from_gateway(
-                    gateway_url=a2a_gateway_url,
-                    agents_path=a2a_gateway_agents_path,
-                    timeout_seconds=a2a_gateway_timeout_seconds,
-                    name_prefix=a2a_gateway_subagent_name_prefix,
+                    gateway_url=gateway_url,
                 )
                 resolved_subagents.extend(discovered)
                 logger.info(
                     "Discovered %d remote subagents from gateway %s",
                     len(discovered),
-                    a2a_gateway_url,
+                    gateway_url,
                 )
             except Exception:  # noqa: BLE001
-                logger.exception("Failed to discover remote subagents from gateway: %s", a2a_gateway_url)
-                if a2a_gateway_fail_fast:
+                logger.exception("Failed to discover remote subagents from gateway: %s", gateway_url)
+                if gateway_fail_fast:
                     raise
 
         self.agent_runner = DeepAgentRunner(
@@ -249,8 +233,8 @@ class EasyagentSDK:
                 app=app,
                 graph=self.agent_runner._agent,
                 path=self.copilotkit_path,
-                name=self.copilotkit_agent_name,
-                description=self.copilotkit_agent_description,
+                name=self.agent_name,
+                description=self.agent_description,
                 authenticate=self.get_current_user,
             )
 
@@ -262,7 +246,7 @@ class EasyagentSDK:
             finally:
                 self.agent_runner.close()
 
-        app = FastAPI(title=self.title, version=self.version, lifespan=lifespan)
+        app = FastAPI(title=self.agent_name, version=self.version, lifespan=lifespan)
         app.middleware("http")(build_logging_context_middleware(self.get_current_user))
         self.mount_fastapi(app, prefix=prefix)
         return app
