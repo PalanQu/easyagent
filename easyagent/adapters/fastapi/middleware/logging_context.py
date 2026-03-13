@@ -13,7 +13,7 @@ async def _resolve_thread_id(request: Request) -> str:
         return "-"
 
     if isinstance(body, dict):
-        thread_id = body.get("thread_id")
+        thread_id = body.get("thread_id") or body.get("threadId")
         if thread_id:
             return str(thread_id)
 

@@ -20,6 +20,7 @@ from easyagent.services.user_service import UserService
 from easyagent.utils.db import Database
 from easyagent.utils.logging import setup_logging
 from easyagent.utils.settings import Settings
+from easyagent.models.schema.session import SessionCreate
 
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgent
 from deepagents.backends.protocol import BackendProtocol
@@ -224,6 +225,32 @@ class EasyagentSDK:
         self._router = build_easyagent_router(self)
         return self._router
 
+    def ensure_session_for_user_thread(self, auth_user: AuthUser, thread_id: str) -> None:
+        normalized_thread_id = thread_id.strip()
+        if not normalized_thread_id:
+            return
+
+        with self.database.session_scope() as db_session:
+            user = self._build_user_service(db_session).get_or_create_user(
+                external_user_id=auth_user.user_id,
+                user_name=auth_user.user_name,
+                email=auth_user.email,
+            )
+            session_service = self._build_session_service(db_session)
+            existing = session_service.get_session_by_thread_id_for_user(
+                thread_id=normalized_thread_id,
+                user_id=user.id,
+            )
+            if existing is not None:
+                return
+            session_service.create_session(
+                SessionCreate(
+                    user_id=user.id,
+                    thread_id=normalized_thread_id,
+                    session_context={"thread_id": normalized_thread_id},
+                )
+            )
+
     def mount_fastapi(self, app: FastAPI, prefix: str = "") -> None:
         app.include_router(self.router(), prefix=prefix)
         if self.a2a_enabled:
@@ -236,6 +263,7 @@ class EasyagentSDK:
                 name=self.agent_name,
                 description=self.agent_description,
                 authenticate=self.get_current_user,
+                ensure_thread_session=self.ensure_session_for_user_thread,
             )
 
     def create_app(self, prefix: str = "") -> FastAPI:

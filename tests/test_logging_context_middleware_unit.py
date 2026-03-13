@@ -33,9 +33,11 @@ class _FakeRequest:
 class TestLoggingContextMiddlewareUnit(unittest.IsolatedAsyncioTestCase):
     async def test_resolve_thread_id_happy_and_fallback(self) -> None:
         req_with_thread = _FakeRequest(json_body={"thread_id": 123})
+        req_with_camel_thread = _FakeRequest(json_body={"threadId": "camel-thread"})
         req_bad_json = _FakeRequest(json_error=ValueError("bad json"))
 
         self.assertEqual(await _resolve_thread_id(req_with_thread), "123")
+        self.assertEqual(await _resolve_thread_id(req_with_camel_thread), "camel-thread")
         self.assertEqual(await _resolve_thread_id(req_bad_json), "-")
 
     async def test_resolve_user_id_priority(self) -> None:

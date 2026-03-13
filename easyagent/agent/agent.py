@@ -457,6 +457,17 @@ class DeepAgentRunner:
             except Exception:  # noqa: BLE001
                 logger.exception("failed to cleanup runner runtime resource")
 
+    def get_thread_state(self, *, thread_id: str, user_id: str | None = None) -> dict[str, Any]:
+        config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
+        if user_id:
+            config["configurable"]["user_id"] = user_id
+        snapshot = self._agent.get_state(config=config)
+        values = getattr(snapshot, "values", None)
+        if values is None:
+            return {}
+        safe_state = self._safe_jsonable(values)
+        return safe_state
+
     def _initialize_langfuse(self) -> bool:
         if not os.getenv("LANGFUSE_BASE_URL"):
             return False

@@ -31,5 +31,16 @@ class SessionRepoPort(Protocol):
     def get_by_user_id(self, user_id: int) -> list[Session]:
         ...
 
-    def create(self, user_id: int, session_context: dict | None = None) -> Session:
+    def get_by_user_id_and_thread_id(self, user_id: int, thread_id: str) -> Session | None:
+        ...
+
+    def create(
+        self,
+        user_id: int,
+        thread_id: str | None = None,
+        session_context: dict | None = None,
+    ) -> Session:
+        ...
+
+    def update_context(self, session_id: int, session_context: dict) -> Session | None:
         ...

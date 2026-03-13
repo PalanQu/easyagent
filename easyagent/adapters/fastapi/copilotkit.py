@@ -15,6 +15,7 @@ def mount_copilotkit_routes(
     name: str,
     description: str,
     authenticate: Callable[[Request], Awaitable[AuthUser]],
+    ensure_thread_session: Callable[[AuthUser, str], object] | None = None,
 ) -> None:
     try:
         from ag_ui.core.types import RunAgentInput
@@ -34,6 +35,8 @@ def mount_copilotkit_routes(
     @app.post(path)
     async def copilotkit_endpoint(input_data: RunAgentInput, request: Request):
         current_user = await _authenticate_request(request)
+        if ensure_thread_session and input_data.thread_id:
+            ensure_thread_session(current_user, input_data.thread_id)
         accept_header = request.headers.get("accept")
         encoder = EventEncoder(accept=accept_header)
 

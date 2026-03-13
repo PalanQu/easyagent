@@ -80,6 +80,7 @@ class TestCopilotKitIntegrationUnit(unittest.TestCase):
     def test_mount_copilotkit_routes_registers_endpoint_and_injects_user_id(self) -> None:
         fake_copilotkit = types.ModuleType("copilotkit")
         calls: dict[str, object] = {}
+        ensured: list[tuple[str, str]] = []
         real_import = builtins.__import__
 
         class _FakeLangGraphAGUIAgent:
@@ -112,6 +113,9 @@ class TestCopilotKitIntegrationUnit(unittest.TestCase):
         async def _authenticate(_request: Request) -> AuthUser:
             return AuthUser(user_id="user_001", user_name="Alice", email="alice@example.com")
 
+        def _ensure_session(user: AuthUser, thread_id: str) -> None:
+            ensured.append((user.user_id, thread_id))
+
         with patch("builtins.__import__", side_effect=_fake_import):
             app = FastAPI()
             graph = object()
@@ -122,6 +126,7 @@ class TestCopilotKitIntegrationUnit(unittest.TestCase):
                 name="easyagent",
                 description="desc",
                 authenticate=_authenticate,
+                ensure_thread_session=_ensure_session,
             )
 
         with TestClient(app) as client:
@@ -155,6 +160,7 @@ class TestCopilotKitIntegrationUnit(unittest.TestCase):
                 },
             },
         )
+        self.assertEqual(ensured, [("user_001", "thread-1")])
 
     def test_mount_fastapi_mounts_copilotkit_when_enabled(self) -> None:
         with TemporaryDirectory() as tmpdir:
@@ -180,5 +186,6 @@ class TestCopilotKitIntegrationUnit(unittest.TestCase):
                 name="sample_agent",
                 description="sample desc",
                 authenticate=sdk.get_current_user,
+                ensure_thread_session=sdk.ensure_session_for_user_thread,
             )
             sdk.agent_runner.close()

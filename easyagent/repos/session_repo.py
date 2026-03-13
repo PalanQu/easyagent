@@ -15,8 +15,34 @@ class SQLModelSessionRepo(SessionRepoPort):
         statement = select(SessionModel).where(SessionModel.user_id == user_id)
         return list(self.session.exec(statement).all())
 
-    def create(self, user_id: int, session_context: dict | None = None) -> SessionModel:
-        db_session = SessionModel(user_id=user_id, session_context=session_context or {})
+    def get_by_user_id_and_thread_id(self, user_id: int, thread_id: str) -> SessionModel | None:
+        statement = select(SessionModel).where(
+            SessionModel.user_id == user_id,
+            SessionModel.thread_id == thread_id,
+        )
+        return self.session.exec(statement).first()
+
+    def create(
+        self,
+        user_id: int,
+        thread_id: str | None = None,
+        session_context: dict | None = None,
+    ) -> SessionModel:
+        db_session = SessionModel(
+            user_id=user_id,
+            thread_id=thread_id,
+            session_context=session_context or {},
+        )
+        self.session.add(db_session)
+        self.session.commit()
+        self.session.refresh(db_session)
+        return db_session
+
+    def update_context(self, session_id: int, session_context: dict) -> SessionModel | None:
+        db_session = self.get_by_id(session_id)
+        if db_session is None:
+            return None
+        db_session.session_context = session_context
         self.session.add(db_session)
         self.session.commit()
         self.session.refresh(db_session)
