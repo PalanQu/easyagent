@@ -1,6 +1,7 @@
 import types
 import unittest
 import builtins
+import warnings
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -8,7 +9,16 @@ from unittest.mock import patch
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 
-from ag_ui.core import EventType, RunFinishedEvent, RunStartedEvent
+from pydantic.warnings import UnsupportedFieldAttributeWarning
+
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", UnsupportedFieldAttributeWarning)
+    warnings.filterwarnings(
+        "ignore",
+        message=r"The '.*' attribute with value .* was provided to the `Field\(\)` function, which has no effect.*",
+        module=r"pydantic\._internal\._generate_schema",
+    )
+    from ag_ui.core import EventType, RunFinishedEvent, RunStartedEvent
 
 from easyagent.auth import AuthUser
 from easyagent.adapters.fastapi.copilotkit import mount_copilotkit_routes

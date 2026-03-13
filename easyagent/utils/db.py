@@ -38,6 +38,43 @@ class Database:
 
     def create_tables(self) -> None:
         SQLModel.metadata.create_all(self.engine)
+        self._run_sqlite_legacy_migrations()
+
+    def _run_sqlite_legacy_migrations(self) -> None:
+        database_url = self.settings.database_url
+        if not (database_url.startswith("sqlite:") or self.settings.db_backend == "sqlite"):
+            return
+
+        with self.engine.begin() as conn:
+            self._ensure_sqlite_column(conn, "user", "external_user_id", "VARCHAR")
+            self._ensure_sqlite_column(conn, "user", "user_name", "VARCHAR")
+            self._ensure_sqlite_column(conn, "user", "email", "VARCHAR")
+            self._ensure_sqlite_column(conn, "session", "thread_id", "VARCHAR")
+
+            user_columns = self._get_sqlite_columns(conn, "user")
+            if "external_user_id" in user_columns:
+                conn.exec_driver_sql(
+                    'CREATE UNIQUE INDEX IF NOT EXISTS ix_user_external_user_id ON "user" (external_user_id)'
+                )
+
+            session_columns = self._get_sqlite_columns(conn, "session")
+            if "thread_id" in session_columns:
+                conn.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_session_thread_id ON "session" (thread_id)')
+
+    @staticmethod
+    def _get_sqlite_columns(conn, table_name: str) -> set[str]:
+        rows = conn.exec_driver_sql(f'PRAGMA table_info("{table_name}")').fetchall()
+        if not rows:
+            return set()
+        return {str(row[1]) for row in rows}
+
+    def _ensure_sqlite_column(self, conn, table_name: str, column_name: str, column_type: str) -> None:
+        columns = self._get_sqlite_columns(conn, table_name)
+        if not columns:
+            return
+        if column_name in columns:
+            return
+        conn.exec_driver_sql(f'ALTER TABLE "{table_name}" ADD COLUMN {column_name} {column_type}')
 
     def session(self) -> Generator[Session, None, None]:
         with Session(self.engine) as session:

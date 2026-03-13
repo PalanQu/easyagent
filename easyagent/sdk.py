@@ -2,8 +2,11 @@ from collections.abc import Callable, Generator, Sequence
 from contextlib import asynccontextmanager
 import logging
 from typing import Any
+import warnings
 
 from fastapi import APIRouter, FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic.warnings import UnsupportedFieldAttributeWarning
 from sqlmodel import Session
 
 from easyagent.adapters.a2a.server import A2AServerConfig
@@ -49,6 +52,8 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
+
+warnings.simplefilter("ignore", UnsupportedFieldAttributeWarning)
 
 
 class EasyagentSDK:
@@ -111,6 +116,10 @@ class EasyagentSDK:
         gateway_fail_fast: bool = False,
         copilotkit_enabled: bool = True,
         copilotkit_path: str = "/copilotkit",
+        cors_allow_origins: list[str] | None = None,
+        cors_allow_methods: list[str] | None = None,
+        cors_allow_headers: list[str] | None = None,
+        cors_allow_credentials: bool = False,
         version: str = "0.1.0",
     ) -> None:
         """
@@ -140,6 +149,10 @@ class EasyagentSDK:
             gateway_fail_fast: Raise initialization error when gateway discovery fails.
             copilotkit_enabled: Whether to expose a CopilotKit LangGraph AG-UI endpoint.
             copilotkit_path: Route prefix used for the CopilotKit endpoint.
+            cors_allow_origins: CORS allowed origins. Defaults to ["*"].
+            cors_allow_methods: CORS allowed methods. Defaults to ["*"].
+            cors_allow_headers: CORS allowed headers. Defaults to ["*"].
+            cors_allow_credentials: Whether CORS allows credentials.
             version: FastAPI application version.
         """
         setup_logging()
@@ -155,6 +168,10 @@ class EasyagentSDK:
         self.a2a_enabled = a2a_enabled
         self.copilotkit_enabled = copilotkit_enabled
         self.copilotkit_path = copilotkit_path
+        self.cors_allow_origins = cors_allow_origins or ["*"]
+        self.cors_allow_methods = cors_allow_methods or ["*"]
+        self.cors_allow_headers = cors_allow_headers or ["*"]
+        self.cors_allow_credentials = cors_allow_credentials
         self.agent_name = agent_name
         self.agent_description = agent_description
         self.a2a_config = A2AServerConfig(
@@ -275,6 +292,13 @@ class EasyagentSDK:
                 self.agent_runner.close()
 
         app = FastAPI(title=self.agent_name, version=self.version, lifespan=lifespan)
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=self.cors_allow_origins,
+            allow_methods=self.cors_allow_methods,
+            allow_headers=self.cors_allow_headers,
+            allow_credentials=self.cors_allow_credentials,
+        )
         app.middleware("http")(build_logging_context_middleware(self.get_current_user))
         self.mount_fastapi(app, prefix=prefix)
         return app

@@ -28,8 +28,8 @@ class SQLModelUserRepo(UserRepoPort):
     ) -> User:
         user = User(
             external_user_id=external_user_id,
-            user_name=user_name,
-            email=email,
+            user_name=user_name if user_name is not None else "",
+            email=email if email is not None else "",
             user_context=user_context or {},
         )
         self.session.add(user)

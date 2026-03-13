@@ -1,10 +1,18 @@
 from collections.abc import Awaitable, Callable
+import warnings
 
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
 from langgraph.graph.state import CompiledStateGraph
 
 from easyagent.models.schema.auth import AuthUser
+
+# Suppress noisy third-party schema warnings emitted by ag_ui/cpk with pydantic v2.
+warnings.filterwarnings(
+    "ignore",
+    message=r"The '.*' attribute with value .* was provided to the `Field\(\)` function, which has no effect.*",
+    module=r"pydantic\._internal\._generate_schema",
+)
 
 
 def mount_copilotkit_routes(
@@ -18,9 +26,16 @@ def mount_copilotkit_routes(
     ensure_thread_session: Callable[[AuthUser, str], object] | None = None,
 ) -> None:
     try:
-        from ag_ui.core.types import RunAgentInput
-        from ag_ui.encoder import EventEncoder
-        from copilotkit import LangGraphAGUIAgent
+        # Some versions of ag-ui/cpk model schemas emit noisy Pydantic
+        # UnsupportedFieldAttributeWarning (alias on union internals).
+        # Keep logs clean while importing these third-party modules.
+        from pydantic.warnings import UnsupportedFieldAttributeWarning
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UnsupportedFieldAttributeWarning)
+            from ag_ui.core.types import RunAgentInput
+            from ag_ui.encoder import EventEncoder
+            from copilotkit import LangGraphAGUIAgent
     except ImportError as exc:
         raise RuntimeError(
             "CopilotKit AG-UI integration requires both `copilotkit` and `ag-ui-langgraph` to be installed."
